@@ -1,0 +1,6 @@
+{
+  "name": "Organizador e Rodízio de Times",
+  "description": "Aplicativo simples para organizar equipes de 6 jogadores, realizar rodízio inteligente dos derrotados com a reserva e misturar times equilibrando gêneros.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
