@@ -1268,48 +1268,6 @@ export default function App() {
                 </form>
               </div>
 
-              {/* Rules Help Card inside Cadastro tab */}
-              <div className={`rounded-2xl p-6 shadow-md space-y-3.5 ${styles.rulesBg}`}>
-                <h3 className={`font-display font-semibold text-sm flex items-center gap-2 ${styles.rulesTitle}`}>
-                  <HelpCircle className="w-5 h-5 text-indigo-400" />
-                  Regras de Funcionamento e Rodízio de Jogadores
-                </h3>
-                <ul className={`text-xs space-y-2.5 list-disc pl-4 font-normal ${styles.rulesText}`}>
-                  <li>
-                    <strong className={styles.rulesStrong}>Hierarquia Fixa:</strong> O Time A recebe valores ímpares (1, 3, 5, 7, 9, 11). O Time B recebe valores pares (2, 4, 6, 8, 10, 12).
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Cadastro Reserva:</strong> Jogadores excedentes recebem numerações sequenciais a partir de 13.
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Rotação de Perdedor:</strong> Os 6 perdedores vão para o fim da fila de reserva. Se a reserva tiver menos de 6 jogadores, os disponíveis entram no topo do time perdedor, empurrando os últimos do time para o fim da reserva.
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Exclusão Inteligente:</strong> Se um jogador ativo for excluído, o 1° da reserva sobe imediatamente e entra no topo daquele time.
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Mistura Balanceada:</strong> Troca 3 jogadores aleatórios de cada time, garantindo quantidade igual de gêneros em cada time (se ímpar, Time A fica com 1 homem a mais). Os jogadores são listados respeitando sua numeração original.
-                  </li>
-                </ul>
-              </div>
-
-              {/* Limpar Tudo dangerous action at the bottom of left column, under the rules */}
-              {registeredPlayers.length > 0 && (
-                <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex items-center justify-between`}>
-                  <div className="space-y-0.5">
-                    <p className={`text-[11px] font-bold uppercase tracking-wider text-rose-500`}>Ação Perigosa</p>
-                    <p className={`text-[10px] ${styles.textMuted}`}>Zerar totalmente o banco de dados</p>
-                  </div>
-                  <button
-                    onClick={() => setShowClearConfirm(true)}
-                    className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold flex items-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-500/10"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Limpar Tudo
-                  </button>
-                </div>
-              )}
-
             </div>
 
             {/* Right column: Master Registered alphabetical list */}
@@ -1439,6 +1397,48 @@ export default function App() {
                 </div>
 
               </div>
+
+              {/* Rules Help Card inside Cadastro tab */}
+              <div className={`rounded-2xl p-6 shadow-md space-y-3.5 ${styles.rulesBg}`}>
+                <h3 className={`font-display font-semibold text-sm flex items-center gap-2 ${styles.rulesTitle}`}>
+                  <HelpCircle className="w-5 h-5 text-indigo-400" />
+                  Regras de Funcionamento e Rodízio de Jogadores
+                </h3>
+                <ul className={`text-xs space-y-2.5 list-disc pl-4 font-normal ${styles.rulesText}`}>
+                  <li>
+                    <strong className={styles.rulesStrong}>Hierarquia Fixa:</strong> O Time A recebe valores ímpares (1, 3, 5, 7, 9, 11). O Time B recebe valores pares (2, 4, 6, 8, 10, 12).
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Cadastro Reserva:</strong> Jogadores excedentes recebem numerações sequenciais a partir de 13.
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Rotação de Perdedor:</strong> Os 6 perdedores vão para o fim da fila de reserva. Se a reserva tiver menos de 6 jogadores, os disponíveis entram no topo do time perdedor, empurrando os últimos do time para o fim da reserva.
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Exclusão Inteligente:</strong> Se um jogador ativo for excluído, o 1° da reserva sobe imediatamente e entra no topo daquele time.
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Mistura Balanceada:</strong> Troca 3 jogadores aleatórios de cada time, garantindo quantidade igual de gêneros em cada time (se ímpar, Time A fica com 1 homem a mais). Os jogadores são listados respeitando sua numeração original.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Limpar Tudo dangerous action at the bottom of left column, under the rules */}
+              {registeredPlayers.length > 0 && (
+                <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex items-center justify-between`}>
+                  <div className="space-y-0.5">
+                    <p className={`text-[11px] font-bold uppercase tracking-wider text-rose-500`}>Ação Perigosa</p>
+                    <p className={`text-[10px] ${styles.textMuted}`}>Zerar totalmente o banco de dados</p>
+                  </div>
+                  <button
+                    onClick={() => setShowClearConfirm(true)}
+                    className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold flex items-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-500/10"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Limpar Tudo
+                  </button>
+                </div>
+              )}
 
             </div>
           </div>
