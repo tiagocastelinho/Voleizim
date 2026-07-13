@@ -19,6 +19,11 @@ import {
   Save,
   X,
   HelpCircle,
+  Undo2,
+  UserMinus,
+  Search,
+  Database,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
 
@@ -27,6 +32,18 @@ export default function App() {
   const [teamA, setTeamA] = useState<Player[]>([]);
   const [teamB, setTeamB] = useState<Player[]>([]);
   const [reserves, setReserves] = useState<Player[]>([]);
+
+  // State for Persistent Database (Aba de Cadastro/Roster)
+  const [registeredPlayers, setRegisteredPlayers] = useState<Player[]>([]);
+
+  // State for Undo History
+  const [history, setHistory] = useState<{ teamA: Player[]; teamB: Player[]; reserves: Player[] }[]>([]);
+
+  // Tab navigation inside left panel: 'cadastro' or 'acoes'
+  const [activeTab, setActiveTab] = useState<"cadastro" | "acoes">("cadastro");
+
+  // Search query for registered players
+  const [searchQuery, setSearchQuery] = useState("");
 
   // State for Registration Form
   const [newPlayerName, setNewPlayerName] = useState("");
@@ -49,18 +66,25 @@ export default function App() {
     const savedA = localStorage.getItem("rodizio_teamA");
     const savedB = localStorage.getItem("rodizio_teamB");
     const savedReserves = localStorage.getItem("rodizio_reserves");
+    const savedRegistered = localStorage.getItem("rodizio_registered");
 
     if (savedA) setTeamA(JSON.parse(savedA));
     if (savedB) setTeamB(JSON.parse(savedB));
     if (savedReserves) setReserves(JSON.parse(savedReserves));
+    if (savedRegistered) setRegisteredPlayers(JSON.parse(savedRegistered));
   }, []);
 
-  // Save to LocalStorage whenever rosters change
+  // Save active rosters to LocalStorage whenever they change
   useEffect(() => {
     localStorage.setItem("rodizio_teamA", JSON.stringify(teamA));
     localStorage.setItem("rodizio_teamB", JSON.stringify(teamB));
     localStorage.setItem("rodizio_reserves", JSON.stringify(reserves));
   }, [teamA, teamB, reserves]);
+
+  // Save registered database to LocalStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("rodizio_registered", JSON.stringify(registeredPlayers));
+  }, [registeredPlayers]);
 
   // Auto-clear notification after delay
   useEffect(() => {
@@ -77,7 +101,44 @@ export default function App() {
     setNotification({ text, type });
   };
 
-  // Add new player to state
+  // Push current rosters to history stack for Undo
+  const pushToHistory = (currA = teamA, currB = teamB, currRes = reserves) => {
+    const stateCopy = {
+      teamA: JSON.parse(JSON.stringify(currA)),
+      teamB: JSON.parse(JSON.stringify(currB)),
+      reserves: JSON.parse(JSON.stringify(currRes)),
+    };
+    setHistory((prev) => [...prev.slice(-29), stateCopy]); // Limit history to 30 elements
+  };
+
+  // Revert last game/action
+  const handleUndo = () => {
+    if (history.length === 0) {
+      triggerToast("Nenhum comando recente para desfazer!", "info");
+      return;
+    }
+
+    const previousState = history[history.length - 1];
+    const newHistory = history.slice(0, -1);
+
+    // Sync any name/gender edits from the master registeredPlayers database
+    const syncWithRegistered = (p: Player) => {
+      const reg = registeredPlayers.find((rp) => rp.id === p.id);
+      if (reg) {
+        return { ...p, name: reg.name, gender: reg.gender };
+      }
+      return p;
+    };
+
+    setTeamA(previousState.teamA.map(syncWithRegistered));
+    setTeamB(previousState.teamB.map(syncWithRegistered));
+    setReserves(previousState.reserves.map(syncWithRegistered));
+    setHistory(newHistory);
+
+    triggerToast("Ação anterior desfeita com sucesso!", "success");
+  };
+
+  // Add new player to registered roster (Database only) - alphabetical
   const handleAddPlayer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlayerName.trim()) {
@@ -85,12 +146,46 @@ export default function App() {
       return;
     }
 
+    const trimmedName = newPlayerName.trim();
+    const alreadyRegistered = registeredPlayers.some(
+      (p) => p.name.toLowerCase() === trimmedName.toLowerCase()
+    );
+
+    if (alreadyRegistered) {
+      triggerToast(`"${trimmedName}" já está cadastrado na lista.`, "error");
+      return;
+    }
+
     const newPlayer: Player = {
       id: `player-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: newPlayerName.trim(),
+      name: trimmedName,
       gender: newPlayerGender,
-      hierarchyValue: 0, // Assigned below
+      hierarchyValue: 0,
     };
+
+    const updatedRegistered = [...registeredPlayers, newPlayer].sort((a, b) =>
+      a.name.localeCompare(b.name, "pt", { sensitivity: "base" })
+    );
+
+    setRegisteredPlayers(updatedRegistered);
+    setNewPlayerName("");
+    triggerToast(`"${newPlayer.name}" cadastrado com sucesso na lista de cadastro!`, "success");
+  };
+
+  // Add registered player to play
+  const handleAddToActive = (player: Player) => {
+    const isInPlay =
+      teamA.some((p) => p.id === player.id) ||
+      teamB.some((p) => p.id === player.id) ||
+      reserves.some((p) => p.id === player.id);
+
+    if (isInPlay) {
+      triggerToast(`"${player.name}" já está escalado na partida atual.`, "error");
+      return;
+    }
+
+    // Save history before modifying rosters
+    pushToHistory();
 
     let updatedA = [...teamA];
     let updatedB = [...teamB];
@@ -98,11 +193,14 @@ export default function App() {
 
     // Distribute according to space
     if (updatedA.length < 6) {
-      updatedA.push(newPlayer);
+      updatedA.push({ ...player });
+      triggerToast(`"${player.name}" escalado no Time A.`, "success");
     } else if (updatedB.length < 6) {
-      updatedB.push(newPlayer);
+      updatedB.push({ ...player });
+      triggerToast(`"${player.name}" escalado no Time B.`, "success");
     } else {
-      updatedReserves.push(newPlayer);
+      updatedReserves.push({ ...player });
+      triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
     }
 
     // Recalculate and reassign hierarchy values
@@ -110,13 +208,12 @@ export default function App() {
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
-
-    setNewPlayerName("");
-    triggerToast(`Jogador "${newPlayer.name}" cadastrado com sucesso!`, "success");
   };
 
-  // Delete a player
-  const handleDeletePlayer = (id: string, name: string) => {
+  // Remove player from active play but KEEP in database
+  const handleRemoveFromActive = (id: string, name: string) => {
+    pushToHistory();
+
     const isInA = teamA.some((p) => p.id === id);
     const isInB = teamB.some((p) => p.id === id);
 
@@ -125,49 +222,77 @@ export default function App() {
     let updatedReserves = [...reserves];
 
     if (isInA) {
-      // Remove from team A
       updatedA = updatedA.filter((p) => p.id !== id);
-      // Promote first reserve to topo of team A
       if (updatedReserves.length > 0) {
         const substitute = updatedReserves[0];
         updatedReserves = updatedReserves.slice(1);
         updatedA = [substitute, ...updatedA];
-        triggerToast(
-          `"${name}" foi removido do Time A e "${substitute.name}" da reserva entrou no topo.`,
-          "success"
-        );
+        triggerToast(`"${name}" removido do Time A. "${substitute.name}" da reserva entrou no time.`, "success");
       } else {
-        triggerToast(`"${name}" foi removido do Time A.`, "success");
+        triggerToast(`"${name}" removido do Time A.`, "success");
       }
     } else if (isInB) {
-      // Remove from team B
       updatedB = updatedB.filter((p) => p.id !== id);
-      // Promote first reserve to topo of team B
       if (updatedReserves.length > 0) {
         const substitute = updatedReserves[0];
         updatedReserves = updatedReserves.slice(1);
         updatedB = [substitute, ...updatedB];
-        triggerToast(
-          `"${name}" foi removido do Time B e "${substitute.name}" da reserva entrou no topo.`,
-          "success"
-        );
+        triggerToast(`"${name}" removido do Time B. "${substitute.name}" da reserva entrou no time.`, "success");
       } else {
-        triggerToast(`"${name}" foi removido do Time B.`, "success");
+        triggerToast(`"${name}" removido do Time B.`, "success");
       }
     } else {
-      // Remove from reserves
       updatedReserves = updatedReserves.filter((p) => p.id !== id);
-      triggerToast(`"${name}" foi removido da reserva.`, "success");
+      triggerToast(`"${name}" removido da fila de reservas.`, "success");
     }
 
-    // Reassign all hierarchy numbers after any substitution/change
     const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
   };
 
-  // Save changes to edited player
+  // Permanently delete player from registered database and active play
+  const handleDefinitiveDelete = (id: string, name: string) => {
+    const isInPlay =
+      teamA.some((p) => p.id === id) ||
+      teamB.some((p) => p.id === id) ||
+      reserves.some((p) => p.id === id);
+
+    if (isInPlay) {
+      pushToHistory();
+    }
+
+    setRegisteredPlayers((prev) => prev.filter((p) => p.id !== id));
+
+    let updatedA = teamA.filter((p) => p.id !== id);
+    let updatedB = teamB.filter((p) => p.id !== id);
+    let updatedReserves = reserves.filter((p) => p.id !== id);
+
+    // Promote substitute if playing team member was deleted
+    if (teamA.some((p) => p.id === id)) {
+      if (updatedReserves.length > 0) {
+        const substitute = updatedReserves[0];
+        updatedReserves = updatedReserves.slice(1);
+        updatedA = [substitute, ...updatedA];
+      }
+    } else if (teamB.some((p) => p.id === id)) {
+      if (updatedReserves.length > 0) {
+        const substitute = updatedReserves[0];
+        updatedReserves = updatedReserves.slice(1);
+        updatedB = [substitute, ...updatedB];
+      }
+    }
+
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
+    setTeamA(updated.teamA);
+    setTeamB(updated.teamB);
+    setReserves(updated.reserves);
+
+    triggerToast(`Cadastro de "${name}" excluído definitivamente!`, "success");
+  };
+
+  // Save changes to edited player (Master list and active lists)
   const handleSaveEditedPlayer = () => {
     if (!editingPlayer) return;
     if (!editingPlayer.name.trim()) {
@@ -175,18 +300,20 @@ export default function App() {
       return;
     }
 
-    // Map updated player back into whichever list they exist in
-    const updatedA = teamA.map((p) => (p.id === editingPlayer.id ? editingPlayer : p));
-    const updatedB = teamB.map((p) => (p.id === editingPlayer.id ? editingPlayer : p));
-    const updatedReserves = reserves.map((p) =>
-      p.id === editingPlayer.id ? editingPlayer : p
+    const nameTrimmed = editingPlayer.name.trim();
+
+    // Update master registered list
+    setRegisteredPlayers((prev) =>
+      prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p))
     );
 
-    setTeamA(updatedA);
-    setTeamB(updatedB);
-    setReserves(updatedReserves);
+    // Update active lists while preserving hierarchy value
+    setTeamA((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p)));
+    setTeamB((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p)));
+    setReserves((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p)));
+
     setEditingPlayer(null);
-    triggerToast("Dados do jogador atualizados com sucesso!", "success");
+    triggerToast("Cadastro do jogador atualizado com sucesso!", "success");
   };
 
   // Handle game finished and rotation
@@ -198,6 +325,9 @@ export default function App() {
       );
       return;
     }
+
+    // Save history before modifying rosters
+    pushToHistory();
 
     const losingTeam = winner === "A" ? teamB : teamA;
     const winningTeam = winner === "A" ? teamA : teamB;
@@ -254,6 +384,9 @@ export default function App() {
 
     const mixed = mixTeams(teamA, teamB);
     if (mixed) {
+      // Save history before modifying rosters
+      pushToHistory();
+
       setTeamA(mixed.teamA);
       setTeamB(mixed.teamB);
       triggerToast(
@@ -265,7 +398,7 @@ export default function App() {
     }
   };
 
-  // Seed 14 typical players
+  // Seed 14 typical players into registered database
   const handleSeedDemoPlayers = () => {
     const testPlayers = [
       { name: "Carlos Silva", gender: Gender.MALE },
@@ -284,31 +417,27 @@ export default function App() {
       { name: "Gisele Nunes", gender: Gender.FEMALE },
     ];
 
-    let tempA: Player[] = [];
-    let tempB: Player[] = [];
-    let tempReserves: Player[] = [];
+    const seeded: Player[] = testPlayers.map((tp, i) => ({
+      id: `seed-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: tp.name,
+      gender: tp.gender,
+      hierarchyValue: 0,
+    }));
 
-    testPlayers.forEach((tp, i) => {
-      const newPlayer: Player = {
-        id: `seed-${i}-${Date.now()}`,
-        name: tp.name,
-        gender: tp.gender,
-        hierarchyValue: 0,
-      };
-      if (tempA.length < 6) {
-        tempA.push(newPlayer);
-      } else if (tempB.length < 6) {
-        tempB.push(newPlayer);
-      } else {
-        tempReserves.push(newPlayer);
+    // Merge without duplicates and sort alphabetically
+    const updatedRegistered = [...registeredPlayers];
+    seeded.forEach((sp) => {
+      if (!updatedRegistered.some((p) => p.name.toLowerCase() === sp.name.toLowerCase())) {
+        updatedRegistered.push(sp);
       }
     });
 
-    const updated = reassignHierarchyValues(tempA, tempB, tempReserves);
-    setTeamA(updated.teamA);
-    setTeamB(updated.teamB);
-    setReserves(updated.reserves);
-    triggerToast("Roster de teste preenchido com 14 jogadores!", "success");
+    updatedRegistered.sort((a, b) =>
+      a.name.localeCompare(b.name, "pt", { sensitivity: "base" })
+    );
+
+    setRegisteredPlayers(updatedRegistered);
+    triggerToast("Lista de cadastro preenchida com 14 jogadores de teste!", "success");
   };
 
   // Reset entire state
@@ -316,16 +445,17 @@ export default function App() {
     setTeamA([]);
     setTeamB([]);
     setReserves([]);
+    setRegisteredPlayers([]);
+    setHistory([]);
     setShowClearConfirm(false);
-    triggerToast("Todo o cadastro de jogadores foi limpo.", "info");
+    triggerToast("Todo o cadastro de jogadores e times foi limpo.", "info");
   };
 
-  // Calculate stats
-  const totalPlayers = teamA.length + teamB.length + reserves.length;
-  const countMen =
-    [...teamA, ...teamB, ...reserves].filter((p) => p.gender === Gender.MALE).length;
-  const countWomen =
-    [...teamA, ...teamB, ...reserves].filter((p) => p.gender === Gender.FEMALE).length;
+  // Calculate stats based on persistent registered base and active roles
+  const totalPlayers = registeredPlayers.length;
+  const totalInGame = teamA.length + teamB.length + reserves.length;
+  const countMen = registeredPlayers.filter((p) => p.gender === Gender.MALE).length;
+  const countWomen = registeredPlayers.filter((p) => p.gender === Gender.FEMALE).length;
 
   const countTeamAMen = teamA.filter((p) => p.gender === Gender.MALE).length;
   const countTeamAWomen = teamA.filter((p) => p.gender === Gender.FEMALE).length;
@@ -376,129 +506,322 @@ export default function App() {
         
         {/* Left Side: Register and Control Center */}
         <section className="lg:col-span-4 space-y-6">
-          
-          {/* Section: Cadastrar Jogador */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
-            <h2 className="font-display font-semibold text-lg text-slate-900 mb-4 flex items-center gap-2">
-              <Plus className="w-5 h-5 text-indigo-600" />
-              Cadastrar Jogador
-            </h2>
-            
-            <form onSubmit={handleAddPlayer} className="space-y-4">
-              <div>
-                <label htmlFor="playerName" className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Nome do Jogador
-                </label>
-                <input
-                  id="playerName"
-                  type="text"
-                  placeholder="Ex: João Silva"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
-                  value={newPlayerName}
-                  onChange={(e) => setNewPlayerName(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <span className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Sexo / Gênero
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    className={`py-2 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
-                      newPlayerGender === Gender.MALE
-                        ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                    onClick={() => setNewPlayerGender(Gender.MALE)}
-                  >
-                    <User className="w-4 h-4 text-indigo-500" />
-                    Masculino
-                  </button>
-                  <button
-                    type="button"
-                    className={`py-2 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-all ${
-                      newPlayerGender === Gender.FEMALE
-                        ? "bg-rose-50 border-rose-200 text-rose-700 shadow-xs"
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    }`}
-                    onClick={() => setNewPlayerGender(Gender.FEMALE)}
-                  >
-                    <User className="w-4 h-4 text-rose-500" />
-                    Feminino
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm py-2.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Adicionar aos Times
-              </button>
-            </form>
-
-            {/* Quick Demo Loader */}
-            {totalPlayers === 0 && (
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={handleSeedDemoPlayers}
-                  className="w-full border border-dashed border-indigo-200 text-indigo-600 bg-indigo-50/50 hover:bg-indigo-50 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all"
-                >
-                  <Sparkles className="w-4 h-4 text-indigo-500" />
-                  Preencher com 14 Jogadores de Teste
-                </button>
-              </div>
-            )}
+          {/* Custom Tabs Navigation */}
+          <div className="bg-slate-100 p-1.5 rounded-2xl flex gap-1.5 border border-slate-200/40">
+            <button
+              onClick={() => setActiveTab("cadastro")}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeTab === "cadastro"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              <Database className="w-4 h-4" />
+              Cadastro ({registeredPlayers.length})
+            </button>
+            <button
+              onClick={() => setActiveTab("acoes")}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeTab === "acoes"
+                  ? "bg-white text-slate-900 shadow-xs"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              Controle & Partida
+            </button>
           </div>
 
-          {/* Section: Centro de Controle da Partida */}
-          <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-5">
-            <div>
-              <h2 className="font-display font-semibold text-lg text-slate-900 mb-1 flex items-center gap-2">
-                <Shuffle className="w-5 h-5 text-indigo-600" />
-                Mistura de Times
-              </h2>
-              <p className="text-xs text-slate-500">Reorganize e equilibre as equipes baseadas no gênero</p>
-            </div>
-
-            {teamA.length === 6 && teamB.length === 6 ? (
-              <button
-                onClick={handleMix}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 group cursor-pointer"
+          <AnimatePresence mode="wait">
+            {activeTab === "cadastro" ? (
+              <motion.div
+                key="tab-cadastro"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.15 }}
+                className="space-y-6"
               >
-                <Shuffle className="w-4 h-4 text-indigo-400 group-hover:rotate-180 transition-transform duration-300" />
-                Misturar e Balancear Times
-              </button>
+                {/* Section: Cadastrar Jogador */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
+                  <h3 className="font-display font-semibold text-sm text-slate-900 mb-4 flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-indigo-600" />
+                    Novo Jogador
+                  </h3>
+                  
+                  <form onSubmit={handleAddPlayer} className="space-y-4">
+                    <div>
+                      <label htmlFor="playerName" className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Nome do Jogador
+                      </label>
+                      <input
+                        id="playerName"
+                        type="text"
+                        placeholder="Ex: Carlos Silva"
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                        value={newPlayerName}
+                        onChange={(e) => setNewPlayerName(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                        Sexo / Gênero
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                            newPlayerGender === Gender.MALE
+                              ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                          onClick={() => setNewPlayerGender(Gender.MALE)}
+                        >
+                          <User className="w-3.5 h-3.5 text-indigo-500" />
+                          Masculino
+                        </button>
+                        <button
+                          type="button"
+                          className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                            newPlayerGender === Gender.FEMALE
+                              ? "bg-rose-50 border-rose-200 text-rose-700 shadow-xs"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                          onClick={() => setNewPlayerGender(Gender.FEMALE)}
+                        >
+                          <User className="w-3.5 h-3.5 text-rose-500" />
+                          Feminino
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Cadastrar Jogador
+                    </button>
+                  </form>
+                </div>
+
+                {/* Section: Lista de Cadastrados (Database) */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-display font-semibold text-sm text-slate-900 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-500" />
+                      Jogadores Cadastrados
+                    </h3>
+                    <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-bold uppercase">
+                      A-Z
+                    </span>
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por nome..."
+                      className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Persistent Alphabetical Roster */}
+                  <div className="max-h-[380px] overflow-y-auto pr-1 space-y-2.5 custom-scrollbar">
+                    {registeredPlayers.length > 0 ? (
+                      (() => {
+                        const filtered = registeredPlayers.filter((p) =>
+                          p.name.toLowerCase().includes(searchQuery.toLowerCase())
+                        );
+
+                        if (filtered.length === 0) {
+                          return (
+                            <p className="text-center text-xs text-slate-400 py-6">
+                              Nenhum jogador encontrado para "{searchQuery}".
+                            </p>
+                          );
+                        }
+
+                        return filtered.map((player) => {
+                          const isInA = teamA.some((p) => p.id === player.id);
+                          const isInB = teamB.some((p) => p.id === player.id);
+                          const isInRes = reserves.some((p) => p.id === player.id);
+                          const isEscalado = isInA || isInB || isInRes;
+
+                          return (
+                            <div
+                              key={player.id}
+                              className={`p-2.5 rounded-xl border flex items-center justify-between transition-all ${
+                                isEscalado
+                                  ? "bg-indigo-50/20 border-indigo-100"
+                                  : "bg-slate-50/50 border-slate-100 hover:bg-slate-50 hover:border-slate-200"
+                              }`}
+                            >
+                              <div className="min-w-0 flex items-center gap-2">
+                                {/* Sex Badge indicator */}
+                                <span
+                                  className={`p-1.5 rounded-lg shrink-0 ${
+                                    player.gender === Gender.MALE
+                                      ? "bg-sky-50 text-sky-600"
+                                      : "bg-rose-50 text-rose-600"
+                                  }`}
+                                  title={player.gender === Gender.MALE ? "Masculino" : "Feminino"}
+                                >
+                                  <User className="w-3.5 h-3.5" />
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold text-slate-800 truncate leading-snug">
+                                    {player.name}
+                                  </p>
+                                  {isEscalado && (
+                                    <span className="text-[9px] font-semibold text-indigo-600 flex items-center gap-1 mt-0.5">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                                      {isInA ? "No Time A" : isInB ? "No Time B" : "Na Reserva"}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0 ml-1">
+                                {/* Add to Play icon button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddToActive(player)}
+                                  disabled={isEscalado}
+                                  title={isEscalado ? "Já escalado na partida" : "Escalar jogador"}
+                                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                    isEscalado
+                                      ? "text-slate-300 bg-slate-100"
+                                      : "text-indigo-600 bg-indigo-50 hover:bg-indigo-100"
+                                  }`}
+                                >
+                                  <Plus className="w-3.5 h-3.5 font-bold" />
+                                </button>
+                                {/* Edit button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingPlayer(player)}
+                                  title="Editar cadastro"
+                                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                {/* Permanent Delete button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDefinitiveDelete(player.id, player.name)}
+                                  title="Excluir cadastro definitivo"
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()
+                    ) : (
+                      <div className="text-center py-8 text-slate-400">
+                        <User className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
+                        <p className="text-xs font-semibold">Nenhum jogador cadastrado.</p>
+                        <p className="text-[10px] text-slate-400 max-w-[200px] mx-auto mt-1 leading-relaxed">
+                          Cadastre acima os jogadores que participam dos seus encontros e rodízios.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
             ) : (
-              <div className="bg-amber-50/80 border border-amber-100 rounded-xl p-4 text-xs text-amber-800 space-y-2">
-                <div className="flex gap-2 font-semibold">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
-                  <span>Mistura Indisponível</span>
-                </div>
-                <p>
-                  Ambos os times precisam estar completos com exatamente 6 jogadores cada para serem misturados.
-                </p>
-              </div>
-            )}
+              <motion.div
+                key="tab-acoes"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.15 }}
+                className="space-y-6"
+              >
+                {/* Section: Centro de Controle da Partida */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-5">
+                  <div>
+                    <h3 className="font-display font-semibold text-sm text-slate-900 mb-1 flex items-center gap-2">
+                      <Shuffle className="w-4 h-4 text-indigo-600" />
+                      Ações de Rodízio
+                    </h3>
+                    <p className="text-[11px] text-slate-500">Reorganize e gerencie os estados das partidas</p>
+                  </div>
 
-            {/* Clear button */}
-            {totalPlayers > 0 && (
-              <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
-                <span className="text-xs text-slate-400 font-medium">Resetar todos os dados:</span>
-                <button
-                  onClick={() => setShowClearConfirm(true)}
-                  className="text-xs text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 hover:underline cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Limpar Tudo
-                </button>
-              </div>
+                  {/* Mixing & Undo Buttons side-by-side or stacked cleanly */}
+                  <div className="space-y-3">
+                    {teamA.length === 6 && teamB.length === 6 ? (
+                      <button
+                        onClick={handleMix}
+                        className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 group cursor-pointer"
+                      >
+                        <Shuffle className="w-4 h-4 text-indigo-400 group-hover:rotate-180 transition-transform duration-300" />
+                        Misturar e Balancear Times
+                      </button>
+                    ) : (
+                      <div className="bg-amber-50/80 border border-amber-100 rounded-xl p-3 text-[11px] text-amber-800 space-y-1">
+                        <div className="flex gap-2 font-semibold">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                          <span>Mistura Indisponível</span>
+                        </div>
+                        <p>Ambos os times precisam de 6 jogadores para misturar.</p>
+                      </div>
+                    )}
+
+                    {/* UNDO BUTTON */}
+                    <button
+                      onClick={handleUndo}
+                      disabled={history.length === 0}
+                      className={`w-full py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer border ${
+                        history.length > 0
+                          ? "bg-white hover:bg-slate-50 text-indigo-600 border-indigo-200 shadow-xs active:scale-98"
+                          : "bg-slate-50 text-slate-300 border-slate-100"
+                      }`}
+                    >
+                      <Undo2 className="w-4 h-4" />
+                      Desfazer Última Ação {history.length > 0 && `(${history.length})`}
+                    </button>
+                  </div>
+
+                  {/* Seed & Clear database utilities inside control panel */}
+                  <div className="pt-4 border-t border-slate-100 space-y-3">
+                    <span className="block text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                      Utilitários de Roster
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={handleSeedDemoPlayers}
+                      className="w-full border border-dashed border-slate-200 text-slate-600 bg-slate-50/50 hover:bg-slate-50 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 text-indigo-500" />
+                      Gerar 14 Jogadores de Teste
+                    </button>
+
+                    {registeredPlayers.length > 0 && (
+                      <div className="pt-2 flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400 font-medium">Reset total do sistema:</span>
+                        <button
+                          onClick={() => setShowClearConfirm(true)}
+                          className="text-xs text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Limpar Tudo
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
         </section>
 
         {/* Right Side: Teams Display Grid */}
@@ -534,7 +857,7 @@ export default function App() {
                           key={player.id}
                           player={player}
                           slotIndex={index}
-                          onDelete={() => handleDeletePlayer(player.id, player.name)}
+                          onDelete={() => handleRemoveFromActive(player.id, player.name)}
                           onEdit={() => setEditingPlayer(player)}
                           accentColor="indigo"
                         />
@@ -592,7 +915,7 @@ export default function App() {
                           key={player.id}
                           player={player}
                           slotIndex={index}
-                          onDelete={() => handleDeletePlayer(player.id, player.name)}
+                          onDelete={() => handleRemoveFromActive(player.id, player.name)}
                           onEdit={() => setEditingPlayer(player)}
                           accentColor="teal"
                         />
@@ -649,7 +972,7 @@ export default function App() {
                         key={player.id}
                         player={player}
                         slotIndex={index}
-                        onDelete={() => handleDeletePlayer(player.id, player.name)}
+                        onDelete={() => handleRemoveFromActive(player.id, player.name)}
                         onEdit={() => setEditingPlayer(player)}
                         accentColor="amber"
                         isReserve
