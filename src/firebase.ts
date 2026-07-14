@@ -26,6 +26,10 @@ export interface GlobalState {
   registeredPlayers: Player[];
   theme: "claro" | "escuro" | "pastel";
   history: { teamA: Player[]; teamB: Player[]; reserves: Player[] }[];
+  alternatingOrder?: boolean;
+  consecutiveWinsTeam?: "A" | "B" | null;
+  consecutiveWinsCount?: number;
+  lastWarnedRostersHash?: string;
 }
 
 export async function saveStateToFirestore(state: Partial<GlobalState>) {

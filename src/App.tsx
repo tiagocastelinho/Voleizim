@@ -173,6 +173,38 @@ export default function App() {
   })());
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
 
+  // State for Alternating Order
+  const [alternatingOrder, setAlternatingOrder] = useState<boolean>(() => {
+    const saved = localStorage.getItem("rodizio_alternatingOrder");
+    return saved === "true";
+  });
+
+  // States for win streaks
+  const [consecutiveWinsTeam, setConsecutiveWinsTeam] = useState<"A" | "B" | null>(() => {
+    const saved = localStorage.getItem("rodizio_consecutiveWinsTeam");
+    return (saved === "A" || saved === "B") ? saved : null;
+  });
+  const [consecutiveWinsCount, setConsecutiveWinsCount] = useState<number>(() => {
+    const saved = localStorage.getItem("rodizio_consecutiveWinsCount");
+    return saved ? parseInt(saved, 10) : 0;
+  });
+
+  // States to control warning modals
+  const [showConsecutiveWinsModal, setShowConsecutiveWinsModal] = useState(false);
+  const [showGenderImbalanceModal, setShowGenderImbalanceModal] = useState(false);
+  const [imbalanceModalData, setImbalanceModalData] = useState<{ teamName: string; otherTeamName: string; diff: number; moreGender: string } | null>(null);
+
+  // Hash-based exclusion for gender warning to prevent duplicate alerts
+  const [lastWarnedRostersHash, setLastWarnedRostersHash] = useState<string>(() => {
+    return localStorage.getItem("rodizio_lastWarnedRostersHash") || "";
+  });
+
+  // Helper to reset win streak on manual alterations
+  const resetWinStreak = () => {
+    setConsecutiveWinsTeam(null);
+    setConsecutiveWinsCount(0);
+  };
+
   // Swapping mode state
   const [swappingPlayerId, setSwappingPlayerId] = useState<string | null>(null);
 
@@ -218,6 +250,10 @@ export default function App() {
           setTheme(data.theme);
         }
         if (data.history !== undefined) setHistory(data.history);
+        if (data.alternatingOrder !== undefined) setAlternatingOrder(data.alternatingOrder);
+        if (data.consecutiveWinsTeam !== undefined) setConsecutiveWinsTeam(data.consecutiveWinsTeam);
+        if (data.consecutiveWinsCount !== undefined) setConsecutiveWinsCount(data.consecutiveWinsCount);
+        if (data.lastWarnedRostersHash !== undefined) setLastWarnedRostersHash(data.lastWarnedRostersHash);
 
         hasLoadedFromFirebaseRef.current = true;
         setTimeout(() => {
@@ -232,7 +268,11 @@ export default function App() {
           reserves,
           registeredPlayers,
           theme,
-          history
+          history,
+          alternatingOrder,
+          consecutiveWinsTeam,
+          consecutiveWinsCount,
+          lastWarnedRostersHash
         };
         setDoc(docRef, initialDoc).catch((err) => console.error("Erro ao inicializar Firebase:", err));
       }
@@ -254,9 +294,24 @@ export default function App() {
       reserves,
       registeredPlayers,
       theme,
-      history
+      history,
+      alternatingOrder,
+      consecutiveWinsTeam,
+      consecutiveWinsCount,
+      lastWarnedRostersHash
     });
-  }, [teamA, teamB, reserves, registeredPlayers, theme, history]);
+  }, [
+    teamA,
+    teamB,
+    reserves,
+    registeredPlayers,
+    theme,
+    history,
+    alternatingOrder,
+    consecutiveWinsTeam,
+    consecutiveWinsCount,
+    lastWarnedRostersHash
+  ]);
 
   // Save active rosters to LocalStorage whenever they change
   useEffect(() => {
@@ -274,6 +329,47 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("rodizio_theme", theme);
   }, [theme]);
+
+  // Save alternatingOrder selection to LocalStorage
+  useEffect(() => {
+    localStorage.setItem("rodizio_alternatingOrder", String(alternatingOrder));
+  }, [alternatingOrder]);
+
+  // Save consecutive win streaks to LocalStorage
+  useEffect(() => {
+    localStorage.setItem("rodizio_consecutiveWinsTeam", consecutiveWinsTeam || "");
+    localStorage.setItem("rodizio_consecutiveWinsCount", String(consecutiveWinsCount));
+  }, [consecutiveWinsTeam, consecutiveWinsCount]);
+
+  // Save lastWarnedRostersHash to LocalStorage
+  useEffect(() => {
+    localStorage.setItem("rodizio_lastWarnedRostersHash", lastWarnedRostersHash);
+  }, [lastWarnedRostersHash]);
+
+  // Automated gender balance checking effect (only for complete 6-player teams)
+  useEffect(() => {
+    if (teamA.length !== 6 || teamB.length !== 6) return;
+
+    const menA = teamA.filter((p) => p.gender === Gender.MALE).length;
+    const menB = teamB.filter((p) => p.gender === Gender.MALE).length;
+    const diff = Math.abs(menA - menB);
+
+    const currentHash = teamA.map((p) => p.id).sort().join(",") + "|" + teamB.map((p) => p.id).sort().join(",");
+
+    if (diff >= 2) {
+      if (currentHash !== lastWarnedRostersHash) {
+        const teamName = menA > menB ? "Time A" : "Time B";
+        const otherTeamName = menA > menB ? "Time B" : "Time A";
+        setImbalanceModalData({
+          teamName,
+          otherTeamName,
+          diff,
+          moreGender: "homens"
+        });
+        setShowGenderImbalanceModal(true);
+      }
+    }
+  }, [teamA, teamB, lastWarnedRostersHash]);
 
   // Auto-clear notification after delay
   useEffect(() => {
@@ -323,6 +419,7 @@ export default function App() {
     setTeamB(previousState.teamB.map(syncWithRegistered));
     setReserves(previousState.reserves.map(syncWithRegistered));
     setHistory(newHistory);
+    resetWinStreak();
 
     triggerToast("Ação anterior desfeita com sucesso!", "success");
   };
@@ -330,6 +427,7 @@ export default function App() {
   // Swap two active players' positions while maintaining the slot hierarchy order
   const handleSwapPlayers = (id1: string, id2: string) => {
     pushToHistory();
+    resetWinStreak();
 
     let updatedA = [...teamA];
     let updatedB = [...teamB];
@@ -391,6 +489,7 @@ export default function App() {
     setTeamB([]);
     setReserves([]);
     setHistory([]);
+    resetWinStreak();
     setSwappingPlayerId(null);
     setShowEndActivitiesConfirm(false);
     triggerToast("Atividades encerradas. Os times e reservas foram limpos.", "info");
@@ -444,21 +543,38 @@ export default function App() {
 
     // Save history before modifying rosters
     pushToHistory();
+    resetWinStreak();
 
     let updatedA = [...teamA];
     let updatedB = [...teamB];
     let updatedReserves = [...reserves];
 
-    // Distribute according to space
-    if (updatedA.length < 6) {
-      updatedA.push({ ...player });
-      triggerToast(`"${player.name}" escalado no Time A.`, "success");
-    } else if (updatedB.length < 6) {
-      updatedB.push({ ...player });
-      triggerToast(`"${player.name}" escalado no Time B.`, "success");
+    if (alternatingOrder) {
+      // 12 first players are distributed alternatingly between A and B
+      if (updatedA.length + updatedB.length < 12) {
+        if (updatedA.length <= updatedB.length) {
+          updatedA.push({ ...player });
+          triggerToast(`"${player.name}" escalado no Time A (Alternado).`, "success");
+        } else {
+          updatedB.push({ ...player });
+          triggerToast(`"${player.name}" escalado no Time B (Alternado).`, "success");
+        }
+      } else {
+        updatedReserves.push({ ...player });
+        triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
+      }
     } else {
-      updatedReserves.push({ ...player });
-      triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
+      // Distribute according to space (Fill A, then B, then Reserves)
+      if (updatedA.length < 6) {
+        updatedA.push({ ...player });
+        triggerToast(`"${player.name}" escalado no Time A.`, "success");
+      } else if (updatedB.length < 6) {
+        updatedB.push({ ...player });
+        triggerToast(`"${player.name}" escalado no Time B.`, "success");
+      } else {
+        updatedReserves.push({ ...player });
+        triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
+      }
     }
 
     // Recalculate and reassign hierarchy values
@@ -471,6 +587,7 @@ export default function App() {
   // Remove player from active play but KEEP in database
   const handleRemoveFromActive = (id: string, name: string) => {
     pushToHistory();
+    resetWinStreak();
 
     const isInA = teamA.some((p) => p.id === id);
     const isInB = teamB.some((p) => p.id === id);
@@ -519,6 +636,7 @@ export default function App() {
 
     if (isInPlay) {
       pushToHistory();
+      resetWinStreak();
     }
 
     setRegisteredPlayers((prev) => prev.filter((p) => p.id !== id));
@@ -624,6 +742,19 @@ export default function App() {
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
 
+    // Track consecutive wins
+    let nextWinsCount = 1;
+    let nextWinsTeam = winner;
+    if (consecutiveWinsTeam === winner) {
+      nextWinsCount = consecutiveWinsCount + 1;
+    }
+    setConsecutiveWinsTeam(nextWinsTeam);
+    setConsecutiveWinsCount(nextWinsCount);
+
+    if (nextWinsCount >= 3) {
+      setShowConsecutiveWinsModal(true);
+    }
+
     triggerToast(
       `Fim de jogo! Time ${winner} venceu. O time perdedor foi deslocado para a reserva.`,
       "success"
@@ -644,6 +775,7 @@ export default function App() {
     if (mixed) {
       // Save history before modifying rosters
       pushToHistory();
+      resetWinStreak();
 
       setTeamA(mixed.teamA);
       setTeamB(mixed.teamB);
@@ -705,6 +837,7 @@ export default function App() {
     setReserves([]);
     setRegisteredPlayers([]);
     setHistory([]);
+    resetWinStreak();
     setShowClearConfirm(false);
     triggerToast("Todo o cadastro de jogadores e times foi limpo.", "info");
   };
@@ -792,7 +925,7 @@ export default function App() {
                       onClick={() => {
                         setTheme("claro");
                         setIsThemeMenuOpen(false);
-                        triggerToast("Visual Claro ativado!", "success");
+                        triggerToast("Claro ativado!", "success");
                       }}
                       className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover} ${
                         theme === "claro" ? "bg-slate-100 dark:bg-slate-800 font-bold" : ""
@@ -805,7 +938,7 @@ export default function App() {
                       onClick={() => {
                         setTheme("escuro");
                         setIsThemeMenuOpen(false);
-                        triggerToast("Visual Escuro ativado!", "success");
+                        triggerToast("Escuro ativado!", "success");
                       }}
                       className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover} ${
                         theme === "escuro" ? "bg-slate-800 font-bold" : ""
@@ -818,7 +951,7 @@ export default function App() {
                       onClick={() => {
                         setTheme("pastel");
                         setIsThemeMenuOpen(false);
-                        triggerToast("Visual Pastel ativado!", "success");
+                        triggerToast("Pastel ativado!", "success");
                       }}
                       className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover} ${
                         theme === "pastel" ? "bg-[#FAF5ED] font-bold" : ""
@@ -827,6 +960,38 @@ export default function App() {
                       <span>🎨 pastel</span>
                       {theme === "pastel" && <Check className="w-3.5 h-3.5 text-[#8A6F53]" />}
                     </button>
+
+                    <div className="border-t my-2 border-slate-100 dark:border-slate-800" />
+                    
+                    <p className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 mb-1 ${styles.textMuted}`}>
+                      Configurações
+                    </p>
+                    
+                    <div className="px-2.5 py-1.5 flex items-center justify-between gap-2 select-none">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold">Ordem Alternada</span>
+                        <span className="text-[10px] opacity-60 leading-tight">Distribui jogadores A, B, A, B...</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const nextVal = !alternatingOrder;
+                          setAlternatingOrder(nextVal);
+                          triggerToast(nextVal ? "Ordem Alternada ativada!" : "Ordem Alternada desativada!", "info");
+                        }}
+                        className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer shrink-0 ${
+                          alternatingOrder 
+                            ? (theme === "escuro" ? "bg-violet-600" : theme === "pastel" ? "bg-[#8A6F53]" : "bg-indigo-600") 
+                            : "bg-slate-300 dark:bg-slate-700"
+                        }`}
+                        title="Os 12 primeiros jogadores serão adicionados alternadamente nos times (primeiro no A, segundo no B...)"
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                            alternatingOrder ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
                   </div>
                 </>
               )}
@@ -965,27 +1130,7 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Seed data utilities inside control panel */}
-                <div className="pt-4 border-t space-y-3 border-slate-100 dark:border-slate-800">
-                  <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${styles.textMuted}`}>
-                    Utilitários de Roster
-                  </span>
 
-                  <button
-                    type="button"
-                    onClick={handleSeedDemoPlayers}
-                    className={`w-full border border-dashed text-slate-600 dark:text-slate-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      theme === "escuro" 
-                        ? "border-slate-800 bg-slate-900/40 hover:bg-slate-900" 
-                        : theme === "pastel" 
-                        ? "border-[#DCD0C0] bg-[#FAF5ED]/50 hover:bg-[#FAF5ED]" 
-                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
-                    }`}
-                  >
-                    <Sparkles className="w-4 h-4 text-indigo-500" />
-                    Gerar 14 Jogadores de Teste
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -1615,6 +1760,108 @@ export default function App() {
                   onClick={handleEndActivities}
                 >
                   Confirmar e Zerar Partida
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CONSECUTIVE WINS WARNING DIALOG */}
+      <AnimatePresence>
+        {showConsecutiveWinsModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className={`rounded-2xl shadow-xl max-w-md w-full p-6 border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
+            >
+              <div className="flex items-center gap-3 text-indigo-500 mb-3">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl">
+                  <Trophy className="w-6 h-6 text-yellow-500 animate-bounce" />
+                </div>
+                <h3 className={`font-display font-bold text-lg ${styles.textBold}`}>
+                  Sequência de Vitórias!
+                </h3>
+              </div>
+              <p className={`text-xs leading-relaxed ${styles.textMuted}`}>
+                O time <strong className="text-amber-500 font-extrabold">{consecutiveWinsTeam === "A" ? "Time A" : "Time B"}</strong> ganhou 3 partidas seguidas! Deseja embaralhar os jogadores a fim de re-balancear os times?
+              </p>
+              <div className="flex gap-2.5 mt-6 justify-end">
+                <button
+                  type="button"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
+                  onClick={() => {
+                    setShowConsecutiveWinsModal(false);
+                    resetWinStreak();
+                  }}
+                >
+                  Não, Manter
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition-all cursor-pointer flex items-center gap-1.5`}
+                  onClick={() => {
+                    setShowConsecutiveWinsModal(false);
+                    resetWinStreak();
+                    handleMix();
+                  }}
+                >
+                  <Shuffle className="w-3.5 h-3.5" />
+                  Sim, Embaralhar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* GENDER IMBALANCE WARNING DIALOG */}
+      <AnimatePresence>
+        {showGenderImbalanceModal && imbalanceModalData && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className={`rounded-2xl shadow-xl max-w-md w-full p-6 border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
+            >
+              <div className="flex items-center gap-3 text-indigo-500 mb-3">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl">
+                  <AlertCircle className="w-6 h-6 text-indigo-500" />
+                </div>
+                <h3 className={`font-display font-bold text-lg ${styles.textBold}`}>
+                  Desequilíbrio de Gênero!
+                </h3>
+              </div>
+              <p className={`text-xs leading-relaxed ${styles.textMuted}`}>
+                Atenção! O <strong className={styles.textBold}>{imbalanceModalData.teamName}</strong> tem <span className="font-bold text-indigo-500">{imbalanceModalData.diff}</span> {imbalanceModalData.moreGender} a mais que o <strong className={styles.textBold}>{imbalanceModalData.otherTeamName}</strong>. Deseja misturar os times para equilibrar?
+              </p>
+              <div className="flex gap-2.5 mt-6 justify-end">
+                <button
+                  type="button"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
+                  onClick={() => {
+                    const currentHash = teamA.map((p) => p.id).sort().join(",") + "|" + teamB.map((p) => p.id).sort().join(",");
+                    setLastWarnedRostersHash(currentHash);
+                    setShowGenderImbalanceModal(false);
+                  }}
+                >
+                  Não, Manter
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition-all cursor-pointer flex items-center gap-1.5`}
+                  onClick={() => {
+                    const currentHash = teamA.map((p) => p.id).sort().join(",") + "|" + teamB.map((p) => p.id).sort().join(",");
+                    setLastWarnedRostersHash(currentHash);
+                    setShowGenderImbalanceModal(false);
+                    handleMix();
+                  }}
+                >
+                  <Shuffle className="w-3.5 h-3.5" />
+                  Sim, Misturar
                 </button>
               </div>
             </motion.div>
