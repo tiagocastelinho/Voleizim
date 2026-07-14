@@ -28,6 +28,13 @@ import {
   Check,
   ArrowLeftRight,
   Power,
+  Lock,
+  Unlock,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUp,
+  ChevronsDown,
+  GripVertical,
 } from "lucide-react";
 import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
@@ -179,6 +186,12 @@ export default function App() {
     return saved === "true";
   });
 
+  // State for Swap Order Mode (A or B)
+  const [swapOrderMode, setSwapOrderMode] = useState<"A" | "B">((() => {
+    const saved = localStorage.getItem("rodizio_swapOrderMode");
+    return (saved === "A" || saved === "B") ? saved : "B";
+  })());
+
   // States for win streaks
   const [consecutiveWinsTeam, setConsecutiveWinsTeam] = useState<"A" | "B" | null>(() => {
     const saved = localStorage.getItem("rodizio_consecutiveWinsTeam");
@@ -207,6 +220,23 @@ export default function App() {
 
   // Swapping mode state
   const [swappingPlayerId, setSwappingPlayerId] = useState<string | null>(null);
+
+  // Manual reorder lock state (holds list of unlocked player IDs)
+  const [unlockedPlayerIds, setUnlockedPlayerIds] = useState<string[]>([]);
+
+  // Dragged player state for fluid live reordering
+  const [draggedPlayerId, setDraggedPlayerId] = useState<string | null>(null);
+  const [draggedGroup, setDraggedGroup] = useState<"A" | "B" | "reserves" | null>(null);
+
+  const togglePlayerUnlock = (id: string) => {
+    setUnlockedPlayerIds((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((pId) => pId !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+  };
 
   // End Activities dual confirmation modals
   const [showEndActivitiesConfirm, setShowEndActivitiesConfirm] = useState(false);
@@ -251,6 +281,9 @@ export default function App() {
         }
         if (data.history !== undefined) setHistory(data.history);
         if (data.alternatingOrder !== undefined) setAlternatingOrder(data.alternatingOrder);
+        if (data.swapOrderMode !== undefined && (data.swapOrderMode === "A" || data.swapOrderMode === "B")) {
+          setSwapOrderMode(data.swapOrderMode);
+        }
         if (data.consecutiveWinsTeam !== undefined) setConsecutiveWinsTeam(data.consecutiveWinsTeam);
         if (data.consecutiveWinsCount !== undefined) setConsecutiveWinsCount(data.consecutiveWinsCount);
         if (data.lastWarnedRostersHash !== undefined) setLastWarnedRostersHash(data.lastWarnedRostersHash);
@@ -270,6 +303,7 @@ export default function App() {
           theme,
           history,
           alternatingOrder,
+          swapOrderMode,
           consecutiveWinsTeam,
           consecutiveWinsCount,
           lastWarnedRostersHash
@@ -296,6 +330,7 @@ export default function App() {
       theme,
       history,
       alternatingOrder,
+      swapOrderMode,
       consecutiveWinsTeam,
       consecutiveWinsCount,
       lastWarnedRostersHash
@@ -308,6 +343,7 @@ export default function App() {
     theme,
     history,
     alternatingOrder,
+    swapOrderMode,
     consecutiveWinsTeam,
     consecutiveWinsCount,
     lastWarnedRostersHash
@@ -334,6 +370,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("rodizio_alternatingOrder", String(alternatingOrder));
   }, [alternatingOrder]);
+
+  // Save swapOrderMode selection to LocalStorage
+  useEffect(() => {
+    localStorage.setItem("rodizio_swapOrderMode", swapOrderMode);
+  }, [swapOrderMode]);
 
   // Save consecutive win streaks to LocalStorage
   useEffect(() => {
@@ -480,7 +521,119 @@ export default function App() {
     setReserves(updatedReserves);
 
     setSwappingPlayerId(null);
+    setUnlockedPlayerIds([]);
     triggerToast(`Troca efetuada entre "${p1.name}" e "${p2.name}"!`, "success");
+  };
+
+  // Manual reordering of players
+  const handleManualMovePlayer = (
+    groupId: "A" | "B" | "reserves",
+    action: "top" | "up" | "down" | "bottom" | "drag",
+    playerId: string,
+    targetPlayerId?: string
+  ) => {
+    pushToHistory();
+    resetWinStreak();
+
+    let listToModify: Player[] = [];
+    if (groupId === "A") listToModify = [...teamA];
+    else if (groupId === "B") listToModify = [...teamB];
+    else listToModify = [...reserves];
+
+    const originalIndex = listToModify.findIndex((p) => p.id === playerId);
+    if (originalIndex === -1) return;
+
+    const [playerToMove] = listToModify.splice(originalIndex, 1);
+
+    if (action === "top") {
+      listToModify.unshift(playerToMove);
+    } else if (action === "bottom") {
+      listToModify.push(playerToMove);
+    } else if (action === "up") {
+      const newIndex = Math.max(0, originalIndex - 1);
+      listToModify.splice(newIndex, 0, playerToMove);
+    } else if (action === "down") {
+      const newIndex = Math.min(listToModify.length, originalIndex + 1);
+      listToModify.splice(newIndex, 0, playerToMove);
+    } else if (action === "drag" && targetPlayerId) {
+      const targetIndex = listToModify.findIndex((p) => p.id === targetPlayerId);
+      if (targetIndex !== -1) {
+        listToModify.splice(targetIndex, 0, playerToMove);
+      } else {
+        listToModify.splice(originalIndex, 0, playerToMove);
+      }
+    }
+
+    // Now reassign hierarchy values for everything using types.ts helper
+    let updatedA = groupId === "A" ? listToModify : [...teamA];
+    let updatedB = groupId === "B" ? listToModify : [...teamB];
+    let updatedReserves = groupId === "reserves" ? listToModify : [...reserves];
+
+    const reassigned = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
+
+    setTeamA(reassigned.teamA);
+    setTeamB(reassigned.teamB);
+    setReserves(reassigned.reserves);
+
+    triggerToast(`Posição de "${playerToMove.name}" ajustada manualmente!`, "success");
+  };
+
+  // Drag and drop handlers with fluid live reordering (Photoshop-like)
+  const handleDragStart = (e: React.DragEvent, id: string, group: "A" | "B" | "reserves") => {
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.setData("group", group);
+    setDraggedPlayerId(id);
+    setDraggedGroup(group);
+
+    // Push state to history once on drag start and reset win streak
+    pushToHistory();
+    resetWinStreak();
+  };
+
+  const handleDragOverCard = (e: React.DragEvent, targetId: string, group: "A" | "B" | "reserves") => {
+    e.preventDefault();
+    if (!draggedPlayerId || draggedGroup !== group || draggedPlayerId === targetId) {
+      return;
+    }
+
+    // Live fluid reordering: shift players as soon as we drag over them
+    let listToModify: Player[] = [];
+    if (group === "A") listToModify = [...teamA];
+    else if (group === "B") listToModify = [...teamB];
+    else listToModify = [...reserves];
+
+    const originalIndex = listToModify.findIndex((p) => p.id === draggedPlayerId);
+    const targetIndex = listToModify.findIndex((p) => p.id === targetId);
+
+    if (originalIndex === -1 || targetIndex === -1) return;
+
+    const [playerToMove] = listToModify.splice(originalIndex, 1);
+    listToModify.splice(targetIndex, 0, playerToMove);
+
+    let updatedA = group === "A" ? listToModify : [...teamA];
+    let updatedB = group === "B" ? listToModify : [...teamB];
+    let updatedReserves = group === "reserves" ? listToModify : [...reserves];
+
+    const reassigned = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
+
+    setTeamA(reassigned.teamA);
+    setTeamB(reassigned.teamB);
+    setReserves(reassigned.reserves);
+  };
+
+  const handleDragOver = (e: React.DragEvent, group: "A" | "B" | "reserves") => {
+    e.preventDefault();
+  };
+
+  const handleDragEnd = () => {
+    setDraggedPlayerId(null);
+    setDraggedGroup(null);
+  };
+
+  const handleDropPlayer = (e: React.DragEvent, targetId: string, targetGroup: "A" | "B" | "reserves") => {
+    e.preventDefault();
+    setDraggedPlayerId(null);
+    setDraggedGroup(null);
   };
 
   // Reset only the active play lists (Teams A, B, and reserves) with confirmation
@@ -578,7 +731,7 @@ export default function App() {
     }
 
     // Recalculate and reassign hierarchy values
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -621,7 +774,7 @@ export default function App() {
       triggerToast(`"${name}" removido da fila de reservas.`, "success");
     }
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -660,7 +813,7 @@ export default function App() {
       }
     }
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -736,7 +889,7 @@ export default function App() {
     const finalB = winner === "B" ? winningTeam : newLosingTeam;
 
     // Reset hierarchy values
-    const updated = reassignHierarchyValues(finalA, finalB, newReserves);
+    const updated = reassignHierarchyValues(finalA, finalB, newReserves, swapOrderMode, winner);
 
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
@@ -779,6 +932,7 @@ export default function App() {
 
       setTeamA(mixed.teamA);
       setTeamB(mixed.teamB);
+      setUnlockedPlayerIds([]);
       triggerToast(
         "Times reorganizados aleatoriamente respeitando equilíbrio de gênero e ordem hierárquica!",
         "success"
@@ -967,30 +1121,64 @@ export default function App() {
                       Configurações
                     </p>
                     
-                    <div className="px-2.5 py-1.5 flex items-center justify-between gap-2 select-none">
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold">Ordem Alternada</span>
-                        <span className="text-[10px] opacity-60 leading-tight">Distribui jogadores A, B, A, B...</span>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const nextVal = !alternatingOrder;
-                          setAlternatingOrder(nextVal);
-                          triggerToast(nextVal ? "Ordem Alternada ativada!" : "Ordem Alternada desativada!", "info");
-                        }}
-                        className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer shrink-0 ${
-                          alternatingOrder 
-                            ? (theme === "escuro" ? "bg-violet-600" : theme === "pastel" ? "bg-[#8A6F53]" : "bg-indigo-600") 
-                            : "bg-slate-300 dark:bg-slate-700"
-                        }`}
-                        title="Os 12 primeiros jogadores serão adicionados alternadamente nos times (primeiro no A, segundo no B...)"
-                      >
-                        <div
-                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
-                            alternatingOrder ? "translate-x-4" : "translate-x-0"
+                    <div className="px-2.5 py-1.5 flex flex-col items-center gap-1.5 select-none text-center">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Ordem de Entrada</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold transition-colors ${!alternatingOrder ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>A</span>
+                        <button
+                          onClick={() => {
+                            const nextVal = !alternatingOrder;
+                            setAlternatingOrder(nextVal);
+                            triggerToast(nextVal ? "Modo de entrada alternada (B) ativado!" : "Modo de entrada sequencial (A) ativado!", "info");
+                          }}
+                          className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer shrink-0 ${
+                            alternatingOrder 
+                              ? (theme === "escuro" ? "bg-violet-600" : theme === "pastel" ? "bg-[#8A6F53]" : "bg-indigo-600") 
+                              : "bg-slate-300 dark:bg-slate-700"
                           }`}
-                        />
-                      </button>
+                          title="Modo de Entrada: A (Sequencial) ou B (Alternada)"
+                        >
+                          <div
+                            className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                              alternatingOrder ? "translate-x-4" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                        <span className={`text-xs font-bold transition-colors ${alternatingOrder ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>B</span>
+                      </div>
+                    </div>
+
+                    <div className="border-t my-2 border-slate-100 dark:border-slate-800" />
+
+                    <div className="px-2.5 py-1.5 flex flex-col items-center gap-1.5 select-none text-center">
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Ordem de Troca</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold transition-colors ${swapOrderMode === "A" ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>A</span>
+                        <button
+                          onClick={() => {
+                            const nextMode = swapOrderMode === "A" ? "B" : "A";
+                            setSwapOrderMode(nextMode);
+                            const updated = reassignHierarchyValues(teamA, teamB, reserves, nextMode, consecutiveWinsTeam);
+                            setTeamA(updated.teamA);
+                            setTeamB(updated.teamB);
+                            setReserves(updated.reserves);
+                            triggerToast(`Ordem de Troca alterada para o Modo ${nextMode}!`, "info");
+                          }}
+                          className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer shrink-0 ${
+                            swapOrderMode === "B" 
+                              ? (theme === "escuro" ? "bg-violet-600" : theme === "pastel" ? "bg-[#8A6F53]" : "bg-indigo-600") 
+                              : "bg-slate-300 dark:bg-slate-700"
+                          }`}
+                          title="Modo de Hierarquia: A (Novo sistema 1-6/7-12) ou B (Antigo impares/pares)"
+                        >
+                          <div
+                            className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
+                              swapOrderMode === "B" ? "translate-x-4" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                        <span className={`text-xs font-bold transition-colors ${swapOrderMode === "B" ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>B</span>
+                      </div>
                     </div>
                   </div>
                 </>
@@ -1182,6 +1370,18 @@ export default function App() {
                                   setSwappingPlayerId(player.id);
                                 }
                               }}
+                              isUnlocked={unlockedPlayerIds.includes(player.id)}
+                              onToggleUnlock={() => togglePlayerUnlock(player.id)}
+                              onMoveToTop={() => handleManualMovePlayer("A", "top", player.id)}
+                              onMoveUp={() => handleManualMovePlayer("A", "up", player.id)}
+                              onMoveDown={() => handleManualMovePlayer("A", "down", player.id)}
+                              onMoveToBottom={() => handleManualMovePlayer("A", "bottom", player.id)}
+                              isLast={index === teamA.length - 1}
+                              onDragStart={(e) => handleDragStart(e, player.id, "A")}
+                              onDragOver={(e) => handleDragOverCard(e, player.id, "A")}
+                              onDrop={(e) => handleDropPlayer(e, player.id, "A")}
+                              onDragEnd={handleDragEnd}
+                              isDragging={draggedPlayerId === player.id}
                             />
                           ))
                         ) : (
@@ -1254,6 +1454,18 @@ export default function App() {
                                   setSwappingPlayerId(player.id);
                                 }
                               }}
+                              isUnlocked={unlockedPlayerIds.includes(player.id)}
+                              onToggleUnlock={() => togglePlayerUnlock(player.id)}
+                              onMoveToTop={() => handleManualMovePlayer("B", "top", player.id)}
+                              onMoveUp={() => handleManualMovePlayer("B", "up", player.id)}
+                              onMoveDown={() => handleManualMovePlayer("B", "down", player.id)}
+                              onMoveToBottom={() => handleManualMovePlayer("B", "bottom", player.id)}
+                              isLast={index === teamB.length - 1}
+                              onDragStart={(e) => handleDragStart(e, player.id, "B")}
+                              onDragOver={(e) => handleDragOverCard(e, player.id, "B")}
+                              onDrop={(e) => handleDropPlayer(e, player.id, "B")}
+                              onDragEnd={handleDragEnd}
+                              isDragging={draggedPlayerId === player.id}
                             />
                           ))
                         ) : (
@@ -1317,15 +1529,27 @@ export default function App() {
                             isSwappingModeActive={!!swappingPlayerId}
                             onSwap={() => {
                               if (swappingPlayerId) {
-                                if (swappingPlayerId === player.id) {
-                                  setSwappingPlayerId(null);
-                                } else {
-                                  handleSwapPlayers(swappingPlayerId, player.id);
-                                }
+                                  if (swappingPlayerId === player.id) {
+                                    setSwappingPlayerId(null);
+                                  } else {
+                                    handleSwapPlayers(swappingPlayerId, player.id);
+                                  }
                               } else {
-                                setSwappingPlayerId(player.id);
+                                  setSwappingPlayerId(player.id);
                               }
                             }}
+                            isUnlocked={unlockedPlayerIds.includes(player.id)}
+                            onToggleUnlock={() => togglePlayerUnlock(player.id)}
+                            onMoveToTop={() => handleManualMovePlayer("reserves", "top", player.id)}
+                            onMoveUp={() => handleManualMovePlayer("reserves", "up", player.id)}
+                            onMoveDown={() => handleManualMovePlayer("reserves", "down", player.id)}
+                            onMoveToBottom={() => handleManualMovePlayer("reserves", "bottom", player.id)}
+                            isLast={index === reserves.length - 1}
+                            onDragStart={(e) => handleDragStart(e, player.id, "reserves")}
+                            onDragOver={(e) => handleDragOverCard(e, player.id, "reserves")}
+                            onDrop={(e) => handleDropPlayer(e, player.id, "reserves")}
+                            onDragEnd={handleDragEnd}
+                            isDragging={draggedPlayerId === player.id}
                           />
                         ))}
                       </AnimatePresence>
@@ -1925,6 +2149,18 @@ interface PlayerCardProps {
   isSwappingSelected?: boolean;
   isSwappingModeActive?: boolean;
   theme?: "claro" | "escuro" | "pastel";
+  isUnlocked?: boolean;
+  onToggleUnlock?: () => void;
+  onMoveToTop?: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  onMoveToBottom?: () => void;
+  isLast?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  isDragging?: boolean;
 }
 
 function PlayerCard({
@@ -1938,13 +2174,30 @@ function PlayerCard({
   isSwappingSelected = false,
   isSwappingModeActive = false,
   theme = "claro",
+  isUnlocked = false,
+  onToggleUnlock,
+  onMoveToTop,
+  onMoveUp,
+  onMoveDown,
+  onMoveToBottom,
+  isLast = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragging = false,
 }: PlayerCardProps) {
   const isMale = player.gender === Gender.MALE;
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const cardStyles = {
     claro: {
       bg: isSwappingSelected 
         ? "bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/20"
+        : isDragOver
+        ? "bg-amber-50/40 border-amber-400 ring-2 ring-amber-400/30 scale-[1.01]"
+        : isUnlocked
+        ? "bg-amber-50/10 border-amber-200 hover:border-amber-400/60 transition-colors"
         : "bg-white border-slate-100",
       text: "text-slate-900",
       textSub: "text-slate-500",
@@ -1960,6 +2213,10 @@ function PlayerCard({
     escuro: {
       bg: isSwappingSelected
         ? "bg-violet-950/60 border-violet-500 ring-2 ring-violet-500/30"
+        : isDragOver
+        ? "bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/30 scale-[1.01]"
+        : isUnlocked
+        ? "bg-amber-950/10 border-amber-900/40 hover:border-amber-700/60 transition-colors"
         : "bg-slate-900 border-slate-800/80",
       text: "text-white",
       textSub: "text-slate-400",
@@ -1975,6 +2232,10 @@ function PlayerCard({
     pastel: {
       bg: isSwappingSelected
         ? "bg-[#FAF1E6] border-[#8A6F53] ring-2 ring-[#8A6F53]/20"
+        : isDragOver
+        ? "bg-[#FAF1E6] border-amber-500 ring-2 ring-amber-500/20 scale-[1.01]"
+        : isUnlocked
+        ? "bg-[#FAF5ED] border-amber-300/60 hover:border-amber-500/60 transition-colors"
         : "bg-white border-[#E8DFCF]",
       text: "text-[#3D2F20]",
       textSub: "text-[#80705E]",
@@ -1993,14 +2254,42 @@ function PlayerCard({
 
   return (
     <motion.div
+      layout
       layoutId={player.id}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
-      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${curCard.bg}`}
+      draggable={isUnlocked}
+      onDragStart={isUnlocked ? onDragStart : undefined}
+      onDragEnd={onDragEnd}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={() => {
+        setIsDragOver(false);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (onDragOver) onDragOver(e);
+      }}
+      onDrop={(e) => {
+        setIsDragOver(false);
+        if (onDrop) onDrop(e);
+      }}
+      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${
+        isUnlocked ? "cursor-grab active:cursor-grabbing border-amber-300/80 dark:border-amber-700/80" : ""
+      } ${isDragging ? "opacity-30 border-dashed border-amber-500 bg-amber-500/5 scale-[0.98]" : curCard.bg}`}
     >
       <div className="flex items-center gap-3 min-w-0">
+        {/* Grip Handle for Reordering */}
+        {isUnlocked && (
+          <div className="text-amber-500/60 hover:text-amber-500 shrink-0 select-none animate-pulse">
+            <GripVertical className="w-4 h-4" />
+          </div>
+        )}
+
         {/* Hierarchy Number Badge */}
         <span
           className={`font-mono text-xs font-bold px-2 py-1 rounded-lg shrink-0 min-w-[28px] text-center ${curCard.badgeHierarchy}`}
@@ -2026,38 +2315,115 @@ function PlayerCard({
 
       {/* Actions */}
       <div className="flex items-center gap-1 shrink-0 ml-2">
-        {onSwap && (
-          <button
-            type="button"
-            onClick={onSwap}
-            title={isSwappingSelected ? "Cancelar troca" : "Trocar jogador"}
-            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-              isSwappingSelected
-                ? "text-amber-500 bg-amber-500/10"
-                : isSwappingModeActive
-                ? "text-indigo-500 bg-indigo-500/10 animate-pulse"
-                : `text-slate-400 hover:text-indigo-500 ${curCard.buttonHover}`
-            }`}
-          >
-            <ArrowLeftRight className="w-3.5 h-3.5" />
-          </button>
+        {/* Lock/Unlock Toggle Button */}
+        <button
+          type="button"
+          onClick={onToggleUnlock}
+          title={isUnlocked ? "Bloquear posição do jogador (Cadeado Desbloqueado)" : "Desbloquear posição para ordenação (Cadeado Bloqueado)"}
+          className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+            isUnlocked
+              ? "text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
+              : `text-slate-400 hover:text-amber-500 ${curCard.buttonHover}`
+          }`}
+        >
+          {isUnlocked ? (
+            <Unlock className="w-3.5 h-3.5" />
+          ) : (
+            <Lock className="w-3.5 h-3.5" />
+          )}
+        </button>
+
+        {isUnlocked ? (
+          <>
+            <button
+              type="button"
+              onClick={onMoveToTop}
+              disabled={slotIndex === 0}
+              title="Ir para o Início (Topo)"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                slotIndex === 0
+                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
+                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
+              }`}
+            >
+              <ChevronsUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveUp}
+              disabled={slotIndex === 0}
+              title="Subir Posição"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                slotIndex === 0
+                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
+                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
+              }`}
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveDown}
+              disabled={isLast}
+              title="Descer Posição"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLast
+                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
+                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
+              }`}
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveToBottom}
+              disabled={isLast}
+              title="Ir para o Fim (Fundo)"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLast
+                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
+                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
+              }`}
+            >
+              <ChevronsDown className="w-3.5 h-3.5" />
+            </button>
+          </>
+        ) : (
+          <>
+            {onSwap && (
+              <button
+                type="button"
+                onClick={onSwap}
+                title={isSwappingSelected ? "Cancelar troca" : "Trocar jogador"}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                  isSwappingSelected
+                    ? "text-amber-500 bg-amber-500/10"
+                    : isSwappingModeActive
+                    ? "text-indigo-500 bg-indigo-500/10 animate-pulse"
+                    : `text-slate-400 hover:text-indigo-500 ${curCard.buttonHover}`
+                }`}
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onEdit}
+              title="Editar Nome/Gênero"
+              className={`text-slate-400 hover:text-indigo-500 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              title={isReserve ? "Remover da reserva" : "Remover e colocar reserva no topo"}
+              className={`text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </>
         )}
-        <button
-          type="button"
-          onClick={onEdit}
-          title="Editar Nome/Gênero"
-          className={`text-slate-400 hover:text-indigo-500 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
-        >
-          <Edit2 className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          title={isReserve ? "Remover da reserva" : "Remover e colocar reserva no topo"}
-          className={`text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
       </div>
     </motion.div>
   );

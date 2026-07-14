@@ -27,6 +27,7 @@ export interface GlobalState {
   theme: "claro" | "escuro" | "pastel";
   history: { teamA: Player[]; teamB: Player[]; reserves: Player[] }[];
   alternatingOrder?: boolean;
+  swapOrderMode?: "A" | "B";
   consecutiveWinsTeam?: "A" | "B" | null;
   consecutiveWinsCount?: number;
   lastWarnedRostersHash?: string;
