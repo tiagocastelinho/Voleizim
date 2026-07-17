@@ -228,12 +228,6 @@ export default function App() {
   const [draggedPlayerId, setDraggedPlayerId] = useState<string | null>(null);
   const [draggedGroup, setDraggedGroup] = useState<"A" | "B" | "reserves" | null>(null);
 
-  // Track dragged player in a ref for safe use inside real-time listener (onSnapshot)
-  const draggedPlayerIdRef = React.useRef<string | null>(null);
-  useEffect(() => {
-    draggedPlayerIdRef.current = draggedPlayerId;
-  }, [draggedPlayerId]);
-
   const togglePlayerUnlock = (id: string) => {
     setUnlockedPlayerIds((prev) => {
       if (prev.includes(id)) {
@@ -278,11 +272,9 @@ export default function App() {
         const data = docSnap.data();
         incomingUpdateRef.current = true;
 
-        if (!draggedPlayerIdRef.current) {
-          if (data.teamA !== undefined) setTeamA(data.teamA);
-          if (data.teamB !== undefined) setTeamB(data.teamB);
-          if (data.reserves !== undefined) setReserves(data.reserves);
-        }
+        if (data.teamA !== undefined) setTeamA(data.teamA);
+        if (data.teamB !== undefined) setTeamB(data.teamB);
+        if (data.reserves !== undefined) setReserves(data.reserves);
         if (data.registeredPlayers !== undefined) setRegisteredPlayers(data.registeredPlayers);
         if (data.theme !== undefined && (data.theme === "claro" || data.theme === "escuro" || data.theme === "pastel")) {
           setTheme(data.theme);
@@ -329,7 +321,6 @@ export default function App() {
   useEffect(() => {
     if (!hasLoadedFromFirebaseRef.current) return;
     if (incomingUpdateRef.current) return;
-    if (draggedPlayerId) return;
 
     saveStateToFirestore({
       teamA,
@@ -355,8 +346,7 @@ export default function App() {
     swapOrderMode,
     consecutiveWinsTeam,
     consecutiveWinsCount,
-    lastWarnedRostersHash,
-    draggedPlayerId
+    lastWarnedRostersHash
   ]);
 
   // Save active rosters to LocalStorage whenever they change
@@ -1389,7 +1379,6 @@ export default function App() {
                               isLast={index === teamA.length - 1}
                               onDragStart={(e) => handleDragStart(e, player.id, "A")}
                               onDragOver={(e) => handleDragOverCard(e, player.id, "A")}
-                              onDragEnter={(e) => handleDragOverCard(e, player.id, "A")}
                               onDrop={(e) => handleDropPlayer(e, player.id, "A")}
                               onDragEnd={handleDragEnd}
                               isDragging={draggedPlayerId === player.id}
@@ -1474,7 +1463,6 @@ export default function App() {
                               isLast={index === teamB.length - 1}
                               onDragStart={(e) => handleDragStart(e, player.id, "B")}
                               onDragOver={(e) => handleDragOverCard(e, player.id, "B")}
-                              onDragEnter={(e) => handleDragOverCard(e, player.id, "B")}
                               onDrop={(e) => handleDropPlayer(e, player.id, "B")}
                               onDragEnd={handleDragEnd}
                               isDragging={draggedPlayerId === player.id}
@@ -1559,7 +1547,6 @@ export default function App() {
                             isLast={index === reserves.length - 1}
                             onDragStart={(e) => handleDragStart(e, player.id, "reserves")}
                             onDragOver={(e) => handleDragOverCard(e, player.id, "reserves")}
-                            onDragEnter={(e) => handleDragOverCard(e, player.id, "reserves")}
                             onDrop={(e) => handleDropPlayer(e, player.id, "reserves")}
                             onDragEnd={handleDragEnd}
                             isDragging={draggedPlayerId === player.id}
@@ -2171,7 +2158,6 @@ interface PlayerCardProps {
   isLast?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
   onDragOver?: (e: React.DragEvent) => void;
-  onDragEnter?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
   isDragging?: boolean;
@@ -2197,7 +2183,6 @@ function PlayerCard({
   isLast = false,
   onDragStart,
   onDragOver,
-  onDragEnter,
   onDrop,
   onDragEnd,
   isDragging = false,
@@ -2281,7 +2266,6 @@ function PlayerCard({
       onDragEnter={(e) => {
         e.preventDefault();
         setIsDragOver(true);
-        if (onDragEnter) onDragEnter(e);
       }}
       onDragLeave={() => {
         setIsDragOver(false);
