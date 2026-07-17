@@ -28,18 +28,8 @@ import {
   Check,
   ArrowLeftRight,
   Power,
-  Lock,
-  Unlock,
-  ArrowUp,
-  ArrowDown,
-  ChevronsUp,
-  ChevronsDown,
-  GripVertical,
 } from "lucide-react";
 import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
-import { db, saveStateToFirestore, updateLastSyncedState, isStateIdentical } from "./firebase";
-import { Cloud, CloudOff, RefreshCw } from "lucide-react";
 
 // Design Palette configurations for Claro, Escuro, and Pastel themes
 const themeStyles = {
@@ -149,24 +139,12 @@ const themeStyles = {
 
 export default function App() {
   // State for Teams and Reserves
-  const [teamA, setTeamA] = useState<Player[]>(() => {
-    const saved = localStorage.getItem("rodizio_teamA");
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [teamB, setTeamB] = useState<Player[]>(() => {
-    const saved = localStorage.getItem("rodizio_teamB");
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [reserves, setReserves] = useState<Player[]>(() => {
-    const saved = localStorage.getItem("rodizio_reserves");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [teamA, setTeamA] = useState<Player[]>([]);
+  const [teamB, setTeamB] = useState<Player[]>([]);
+  const [reserves, setReserves] = useState<Player[]>([]);
 
   // State for Persistent Database (Aba de Cadastro/Roster)
-  const [registeredPlayers, setRegisteredPlayers] = useState<Player[]>(() => {
-    const saved = localStorage.getItem("rodizio_registered");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [registeredPlayers, setRegisteredPlayers] = useState<Player[]>([]);
 
   // State for Undo History
   const [history, setHistory] = useState<{ teamA: Player[]; teamB: Player[]; reserves: Player[] }[]>([]);
@@ -175,72 +153,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"cadastro" | "acoes">("acoes");
 
   // Visual Theme option state ('claro' | 'escuro' | 'pastel')
-  const [theme, setTheme] = useState<"claro" | "escuro" | "pastel">((() => {
-    const saved = localStorage.getItem("rodizio_theme");
-    return (saved === "claro" || saved === "escuro" || saved === "pastel") ? saved : "claro";
-  })());
+  const [theme, setTheme] = useState<"claro" | "escuro" | "pastel">("claro");
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
-
-  // State for Alternating Order
-  const [alternatingOrder, setAlternatingOrder] = useState<boolean>(() => {
-    const saved = localStorage.getItem("rodizio_alternatingOrder");
-    return saved === "true";
-  });
-
-  // State for Swap Order Mode (A or B)
-  const [swapOrderMode, setSwapOrderMode] = useState<"A" | "B">((() => {
-    const saved = localStorage.getItem("rodizio_swapOrderMode");
-    return (saved === "A" || saved === "B") ? saved : "B";
-  })());
-
-  // States for win streaks
-  const [consecutiveWinsTeam, setConsecutiveWinsTeam] = useState<"A" | "B" | null>(() => {
-    const saved = localStorage.getItem("rodizio_consecutiveWinsTeam");
-    return (saved === "A" || saved === "B") ? saved : null;
-  });
-  const [consecutiveWinsCount, setConsecutiveWinsCount] = useState<number>(() => {
-    const saved = localStorage.getItem("rodizio_consecutiveWinsCount");
-    return saved ? parseInt(saved, 10) : 0;
-  });
-
-  // States to control warning modals
-  const [showConsecutiveWinsModal, setShowConsecutiveWinsModal] = useState(false);
-  const [showGenderImbalanceModal, setShowGenderImbalanceModal] = useState(false);
-  const [imbalanceModalData, setImbalanceModalData] = useState<{ teamName: string; otherTeamName: string; diff: number; moreGender: string } | null>(null);
-
-  // Hash-based exclusion for gender warning to prevent duplicate alerts
-  const [lastWarnedRostersHash, setLastWarnedRostersHash] = useState<string>(() => {
-    return localStorage.getItem("rodizio_lastWarnedRostersHash") || "";
-  });
-
-  // Helper to reset win streak on manual alterations
-  const resetWinStreak = () => {
-    setConsecutiveWinsTeam(null);
-    setConsecutiveWinsCount(0);
-  };
 
   // Swapping mode state
   const [swappingPlayerId, setSwappingPlayerId] = useState<string | null>(null);
 
-  // Manual reorder lock state (holds list of unlocked player IDs)
-  const [unlockedPlayerIds, setUnlockedPlayerIds] = useState<string[]>([]);
-
-  // Dragged player state for fluid live reordering
-  const [draggedPlayerId, setDraggedPlayerId] = useState<string | null>(null);
-  const [draggedGroup, setDraggedGroup] = useState<"A" | "B" | "reserves" | null>(null);
-
-  const togglePlayerUnlock = (id: string) => {
-    setUnlockedPlayerIds((prev) => {
-      if (prev.includes(id)) {
-        return prev.filter((pId) => pId !== id);
-      } else {
-        return [...prev, id];
-      }
-    });
-  };
-
   // End Activities dual confirmation modals
   const [showEndActivitiesConfirm, setShowEndActivitiesConfirm] = useState(false);
+  const [showEndActivitiesConfirm2, setShowEndActivitiesConfirm2] = useState(false);
 
   // Search query for registered players
   const [searchQuery, setSearchQuery] = useState("");
@@ -261,116 +182,22 @@ export default function App() {
   // Custom confirmation modal
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  // Firebase sync status state
-  const [firebaseStatus, setFirebaseStatus] = useState<"conectado" | "sincronizando" | "erro" | "inicializando">("inicializando");
-
-  // Synchronization control refs to prevent infinite database update loops
-  const hasLoadedFromFirebaseRef = React.useRef(false);
-
-  // Real-time synchronization with Firebase Firestore
+  // Load from LocalStorage on mount
   useEffect(() => {
-    const docRef = doc(db, "appState", "global");
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        
-        // Cache this state string so our local useEffect knows it was a remote change
-        updateLastSyncedState(data);
+    const savedA = localStorage.getItem("rodizio_teamA");
+    const savedB = localStorage.getItem("rodizio_teamB");
+    const savedReserves = localStorage.getItem("rodizio_reserves");
+    const savedRegistered = localStorage.getItem("rodizio_registered");
+    const savedTheme = localStorage.getItem("rodizio_theme");
 
-        if (data.teamA !== undefined) setTeamA(data.teamA);
-        if (data.teamB !== undefined) setTeamB(data.teamB);
-        if (data.reserves !== undefined) setReserves(data.reserves);
-        if (data.registeredPlayers !== undefined) setRegisteredPlayers(data.registeredPlayers);
-        if (data.theme !== undefined && (data.theme === "claro" || data.theme === "escuro" || data.theme === "pastel")) {
-          setTheme(data.theme);
-        }
-        if (data.history !== undefined) setHistory(data.history);
-        if (data.alternatingOrder !== undefined) setAlternatingOrder(data.alternatingOrder);
-        if (data.swapOrderMode !== undefined && (data.swapOrderMode === "A" || data.swapOrderMode === "B")) {
-          setSwapOrderMode(data.swapOrderMode);
-        }
-        if (data.consecutiveWinsTeam !== undefined) setConsecutiveWinsTeam(data.consecutiveWinsTeam);
-        if (data.consecutiveWinsCount !== undefined) setConsecutiveWinsCount(data.consecutiveWinsCount);
-        if (data.lastWarnedRostersHash !== undefined) setLastWarnedRostersHash(data.lastWarnedRostersHash);
-
-        hasLoadedFromFirebaseRef.current = true;
-        setFirebaseStatus("conectado");
-      } else {
-        // Document does not exist in Cloud Firestore yet, let's write current local state
-        hasLoadedFromFirebaseRef.current = true;
-        const initialDoc = {
-          teamA,
-          teamB,
-          reserves,
-          registeredPlayers,
-          theme,
-          history,
-          alternatingOrder,
-          swapOrderMode,
-          consecutiveWinsTeam,
-          consecutiveWinsCount,
-          lastWarnedRostersHash
-        };
-        updateLastSyncedState(initialDoc);
-        setFirebaseStatus("sincronizando");
-        setDoc(docRef, initialDoc)
-          .then(() => setFirebaseStatus("conectado"))
-          .catch((err) => {
-            console.error("Erro ao inicializar Firebase:", err);
-            setFirebaseStatus("erro");
-          });
-      }
-    }, (error) => {
-      console.error("Erro ao sincronizar com o Firebase:", error);
-      setFirebaseStatus("erro");
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // Upload changes to Firebase Firestore when state changes locally
-  useEffect(() => {
-    if (!hasLoadedFromFirebaseRef.current) return;
-
-    const payload = {
-      teamA,
-      teamB,
-      reserves,
-      registeredPlayers,
-      theme,
-      history,
-      alternatingOrder,
-      swapOrderMode,
-      consecutiveWinsTeam,
-      consecutiveWinsCount,
-      lastWarnedRostersHash
-    };
-
-    if (isStateIdentical(payload)) {
-      // Direct comparison skips redundant operations
-      return;
+    if (savedA) setTeamA(JSON.parse(savedA));
+    if (savedB) setTeamB(JSON.parse(savedB));
+    if (savedReserves) setReserves(JSON.parse(savedReserves));
+    if (savedRegistered) setRegisteredPlayers(JSON.parse(savedRegistered));
+    if (savedTheme === "claro" || savedTheme === "escuro" || savedTheme === "pastel") {
+      setTheme(savedTheme);
     }
-
-    setFirebaseStatus("sincronizando");
-    saveStateToFirestore(payload)
-      .then(() => setFirebaseStatus("conectado"))
-      .catch((err) => {
-        console.error("Erro ao sincronizar modificação local:", err);
-        setFirebaseStatus("erro");
-      });
-  }, [
-    teamA,
-    teamB,
-    reserves,
-    registeredPlayers,
-    theme,
-    history,
-    alternatingOrder,
-    swapOrderMode,
-    consecutiveWinsTeam,
-    consecutiveWinsCount,
-    lastWarnedRostersHash
-  ]);
+  }, []);
 
   // Save active rosters to LocalStorage whenever they change
   useEffect(() => {
@@ -388,52 +215,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("rodizio_theme", theme);
   }, [theme]);
-
-  // Save alternatingOrder selection to LocalStorage
-  useEffect(() => {
-    localStorage.setItem("rodizio_alternatingOrder", String(alternatingOrder));
-  }, [alternatingOrder]);
-
-  // Save swapOrderMode selection to LocalStorage
-  useEffect(() => {
-    localStorage.setItem("rodizio_swapOrderMode", swapOrderMode);
-  }, [swapOrderMode]);
-
-  // Save consecutive win streaks to LocalStorage
-  useEffect(() => {
-    localStorage.setItem("rodizio_consecutiveWinsTeam", consecutiveWinsTeam || "");
-    localStorage.setItem("rodizio_consecutiveWinsCount", String(consecutiveWinsCount));
-  }, [consecutiveWinsTeam, consecutiveWinsCount]);
-
-  // Save lastWarnedRostersHash to LocalStorage
-  useEffect(() => {
-    localStorage.setItem("rodizio_lastWarnedRostersHash", lastWarnedRostersHash);
-  }, [lastWarnedRostersHash]);
-
-  // Automated gender balance checking effect (only for complete 6-player teams)
-  useEffect(() => {
-    if (teamA.length !== 6 || teamB.length !== 6) return;
-
-    const menA = teamA.filter((p) => p.gender === Gender.MALE).length;
-    const menB = teamB.filter((p) => p.gender === Gender.MALE).length;
-    const diff = Math.abs(menA - menB);
-
-    const currentHash = teamA.map((p) => p.id).sort().join(",") + "|" + teamB.map((p) => p.id).sort().join(",");
-
-    if (diff >= 2) {
-      if (currentHash !== lastWarnedRostersHash) {
-        const teamName = menA > menB ? "Time A" : "Time B";
-        const otherTeamName = menA > menB ? "Time B" : "Time A";
-        setImbalanceModalData({
-          teamName,
-          otherTeamName,
-          diff,
-          moreGender: "homens"
-        });
-        setShowGenderImbalanceModal(true);
-      }
-    }
-  }, [teamA, teamB, lastWarnedRostersHash]);
 
   // Auto-clear notification after delay
   useEffect(() => {
@@ -483,7 +264,6 @@ export default function App() {
     setTeamB(previousState.teamB.map(syncWithRegistered));
     setReserves(previousState.reserves.map(syncWithRegistered));
     setHistory(newHistory);
-    resetWinStreak();
 
     triggerToast("Ação anterior desfeita com sucesso!", "success");
   };
@@ -491,7 +271,6 @@ export default function App() {
   // Swap two active players' positions while maintaining the slot hierarchy order
   const handleSwapPlayers = (id1: string, id2: string) => {
     pushToHistory();
-    resetWinStreak();
 
     let updatedA = [...teamA];
     let updatedB = [...teamB];
@@ -544,130 +323,18 @@ export default function App() {
     setReserves(updatedReserves);
 
     setSwappingPlayerId(null);
-    setUnlockedPlayerIds([]);
     triggerToast(`Troca efetuada entre "${p1.name}" e "${p2.name}"!`, "success");
   };
 
-  // Manual reordering of players
-  const handleManualMovePlayer = (
-    groupId: "A" | "B" | "reserves",
-    action: "top" | "up" | "down" | "bottom" | "drag",
-    playerId: string,
-    targetPlayerId?: string
-  ) => {
-    pushToHistory();
-    resetWinStreak();
-
-    let listToModify: Player[] = [];
-    if (groupId === "A") listToModify = [...teamA];
-    else if (groupId === "B") listToModify = [...teamB];
-    else listToModify = [...reserves];
-
-    const originalIndex = listToModify.findIndex((p) => p.id === playerId);
-    if (originalIndex === -1) return;
-
-    const [playerToMove] = listToModify.splice(originalIndex, 1);
-
-    if (action === "top") {
-      listToModify.unshift(playerToMove);
-    } else if (action === "bottom") {
-      listToModify.push(playerToMove);
-    } else if (action === "up") {
-      const newIndex = Math.max(0, originalIndex - 1);
-      listToModify.splice(newIndex, 0, playerToMove);
-    } else if (action === "down") {
-      const newIndex = Math.min(listToModify.length, originalIndex + 1);
-      listToModify.splice(newIndex, 0, playerToMove);
-    } else if (action === "drag" && targetPlayerId) {
-      const targetIndex = listToModify.findIndex((p) => p.id === targetPlayerId);
-      if (targetIndex !== -1) {
-        listToModify.splice(targetIndex, 0, playerToMove);
-      } else {
-        listToModify.splice(originalIndex, 0, playerToMove);
-      }
-    }
-
-    // Now reassign hierarchy values for everything using types.ts helper
-    let updatedA = groupId === "A" ? listToModify : [...teamA];
-    let updatedB = groupId === "B" ? listToModify : [...teamB];
-    let updatedReserves = groupId === "reserves" ? listToModify : [...reserves];
-
-    const reassigned = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
-
-    setTeamA(reassigned.teamA);
-    setTeamB(reassigned.teamB);
-    setReserves(reassigned.reserves);
-
-    triggerToast(`Posição de "${playerToMove.name}" ajustada manualmente!`, "success");
-  };
-
-  // Drag and drop handlers with fluid live reordering (Photoshop-like)
-  const handleDragStart = (e: React.DragEvent, id: string, group: "A" | "B" | "reserves") => {
-    e.dataTransfer.setData("text/plain", id);
-    e.dataTransfer.setData("group", group);
-    setDraggedPlayerId(id);
-    setDraggedGroup(group);
-
-    // Push state to history once on drag start and reset win streak
-    pushToHistory();
-    resetWinStreak();
-  };
-
-  const handleDragOverCard = (e: React.DragEvent, targetId: string, group: "A" | "B" | "reserves") => {
-    e.preventDefault();
-    if (!draggedPlayerId || draggedGroup !== group || draggedPlayerId === targetId) {
-      return;
-    }
-
-    // Live fluid reordering: shift players as soon as we drag over them
-    let listToModify: Player[] = [];
-    if (group === "A") listToModify = [...teamA];
-    else if (group === "B") listToModify = [...teamB];
-    else listToModify = [...reserves];
-
-    const originalIndex = listToModify.findIndex((p) => p.id === draggedPlayerId);
-    const targetIndex = listToModify.findIndex((p) => p.id === targetId);
-
-    if (originalIndex === -1 || targetIndex === -1) return;
-
-    const [playerToMove] = listToModify.splice(originalIndex, 1);
-    listToModify.splice(targetIndex, 0, playerToMove);
-
-    let updatedA = group === "A" ? listToModify : [...teamA];
-    let updatedB = group === "B" ? listToModify : [...teamB];
-    let updatedReserves = group === "reserves" ? listToModify : [...reserves];
-
-    const reassigned = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
-
-    setTeamA(reassigned.teamA);
-    setTeamB(reassigned.teamB);
-    setReserves(reassigned.reserves);
-  };
-
-  const handleDragOver = (e: React.DragEvent, group: "A" | "B" | "reserves") => {
-    e.preventDefault();
-  };
-
-  const handleDragEnd = () => {
-    setDraggedPlayerId(null);
-    setDraggedGroup(null);
-  };
-
-  const handleDropPlayer = (e: React.DragEvent, targetId: string, targetGroup: "A" | "B" | "reserves") => {
-    e.preventDefault();
-    setDraggedPlayerId(null);
-    setDraggedGroup(null);
-  };
-
-  // Reset only the active play lists (Teams A, B, and reserves) with confirmation
+  // Reset only the active play lists (Teams A, B, and reserves) with dual confirmation
   const handleEndActivities = () => {
     setTeamA([]);
     setTeamB([]);
     setReserves([]);
     setHistory([]);
-    resetWinStreak();
     setSwappingPlayerId(null);
     setShowEndActivitiesConfirm(false);
+    setShowEndActivitiesConfirm2(false);
     triggerToast("Atividades encerradas. Os times e reservas foram limpos.", "info");
   };
 
@@ -719,42 +386,25 @@ export default function App() {
 
     // Save history before modifying rosters
     pushToHistory();
-    resetWinStreak();
 
     let updatedA = [...teamA];
     let updatedB = [...teamB];
     let updatedReserves = [...reserves];
 
-    if (alternatingOrder) {
-      // 12 first players are distributed alternatingly between A and B
-      if (updatedA.length + updatedB.length < 12) {
-        if (updatedA.length <= updatedB.length) {
-          updatedA.push({ ...player });
-          triggerToast(`"${player.name}" escalado no Time A (Alternado).`, "success");
-        } else {
-          updatedB.push({ ...player });
-          triggerToast(`"${player.name}" escalado no Time B (Alternado).`, "success");
-        }
-      } else {
-        updatedReserves.push({ ...player });
-        triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
-      }
+    // Distribute according to space
+    if (updatedA.length < 6) {
+      updatedA.push({ ...player });
+      triggerToast(`"${player.name}" escalado no Time A.`, "success");
+    } else if (updatedB.length < 6) {
+      updatedB.push({ ...player });
+      triggerToast(`"${player.name}" escalado no Time B.`, "success");
     } else {
-      // Distribute according to space (Fill A, then B, then Reserves)
-      if (updatedA.length < 6) {
-        updatedA.push({ ...player });
-        triggerToast(`"${player.name}" escalado no Time A.`, "success");
-      } else if (updatedB.length < 6) {
-        updatedB.push({ ...player });
-        triggerToast(`"${player.name}" escalado no Time B.`, "success");
-      } else {
-        updatedReserves.push({ ...player });
-        triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
-      }
+      updatedReserves.push({ ...player });
+      triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
     }
 
     // Recalculate and reassign hierarchy values
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -763,7 +413,6 @@ export default function App() {
   // Remove player from active play but KEEP in database
   const handleRemoveFromActive = (id: string, name: string) => {
     pushToHistory();
-    resetWinStreak();
 
     const isInA = teamA.some((p) => p.id === id);
     const isInB = teamB.some((p) => p.id === id);
@@ -797,7 +446,7 @@ export default function App() {
       triggerToast(`"${name}" removido da fila de reservas.`, "success");
     }
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -812,7 +461,6 @@ export default function App() {
 
     if (isInPlay) {
       pushToHistory();
-      resetWinStreak();
     }
 
     setRegisteredPlayers((prev) => prev.filter((p) => p.id !== id));
@@ -836,7 +484,7 @@ export default function App() {
       }
     }
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -912,24 +560,11 @@ export default function App() {
     const finalB = winner === "B" ? winningTeam : newLosingTeam;
 
     // Reset hierarchy values
-    const updated = reassignHierarchyValues(finalA, finalB, newReserves, swapOrderMode, winner);
+    const updated = reassignHierarchyValues(finalA, finalB, newReserves);
 
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
-
-    // Track consecutive wins
-    let nextWinsCount = 1;
-    let nextWinsTeam = winner;
-    if (consecutiveWinsTeam === winner) {
-      nextWinsCount = consecutiveWinsCount + 1;
-    }
-    setConsecutiveWinsTeam(nextWinsTeam);
-    setConsecutiveWinsCount(nextWinsCount);
-
-    if (nextWinsCount >= 3) {
-      setShowConsecutiveWinsModal(true);
-    }
 
     triggerToast(
       `Fim de jogo! Time ${winner} venceu. O time perdedor foi deslocado para a reserva.`,
@@ -951,11 +586,9 @@ export default function App() {
     if (mixed) {
       // Save history before modifying rosters
       pushToHistory();
-      resetWinStreak();
 
       setTeamA(mixed.teamA);
       setTeamB(mixed.teamB);
-      setUnlockedPlayerIds([]);
       triggerToast(
         "Times reorganizados aleatoriamente respeitando equilíbrio de gênero e ordem hierárquica!",
         "success"
@@ -1014,7 +647,6 @@ export default function App() {
     setReserves([]);
     setRegisteredPlayers([]);
     setHistory([]);
-    resetWinStreak();
     setShowClearConfirm(false);
     triggerToast("Todo o cadastro de jogadores e times foi limpo.", "info");
   };
@@ -1051,43 +683,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Firebase Sync Indicator */}
-            <div className={`flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-xl border transition-colors duration-200 ${
-              firebaseStatus === "conectado"
-                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-                : firebaseStatus === "sincronizando"
-                ? "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400"
-                : firebaseStatus === "erro"
-                ? "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400"
-                : "bg-slate-500/10 border-slate-500/20 text-slate-500 dark:text-slate-400"
-            }`} title={`Status de sincronização com o Firebase: ${firebaseStatus}`}>
-              {firebaseStatus === "conectado" && (
-                <>
-                  <Cloud className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="hidden sm:inline">Nuvem Sincronizada</span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                </>
-              )}
-              {firebaseStatus === "sincronizando" && (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
-                  <span>Sincronizando...</span>
-                </>
-              )}
-              {firebaseStatus === "erro" && (
-                <>
-                  <CloudOff className="w-3.5 h-3.5 text-rose-500" />
-                  <span>Erro de Conexão</span>
-                </>
-              )}
-              {firebaseStatus === "inicializando" && (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                  <span>Conectando...</span>
-                </>
-              )}
-            </div>
-
             {/* Quick Stats Banner */}
             <div className={`flex flex-wrap items-center gap-4 text-xs font-semibold p-2.5 rounded-xl border transition-colors duration-200 ${
               theme === "escuro" 
@@ -1139,7 +734,7 @@ export default function App() {
                       onClick={() => {
                         setTheme("claro");
                         setIsThemeMenuOpen(false);
-                        triggerToast("Claro ativado!", "success");
+                        triggerToast("Visual Claro ativado!", "success");
                       }}
                       className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover} ${
                         theme === "claro" ? "bg-slate-100 dark:bg-slate-800 font-bold" : ""
@@ -1152,7 +747,7 @@ export default function App() {
                       onClick={() => {
                         setTheme("escuro");
                         setIsThemeMenuOpen(false);
-                        triggerToast("Escuro ativado!", "success");
+                        triggerToast("Visual Escuro ativado!", "success");
                       }}
                       className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover} ${
                         theme === "escuro" ? "bg-slate-800 font-bold" : ""
@@ -1165,7 +760,7 @@ export default function App() {
                       onClick={() => {
                         setTheme("pastel");
                         setIsThemeMenuOpen(false);
-                        triggerToast("Pastel ativado!", "success");
+                        triggerToast("Visual Pastel ativado!", "success");
                       }}
                       className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover} ${
                         theme === "pastel" ? "bg-[#FAF5ED] font-bold" : ""
@@ -1174,72 +769,6 @@ export default function App() {
                       <span>🎨 pastel</span>
                       {theme === "pastel" && <Check className="w-3.5 h-3.5 text-[#8A6F53]" />}
                     </button>
-
-                    <div className="border-t my-2 border-slate-100 dark:border-slate-800" />
-                    
-                    <p className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 mb-1 ${styles.textMuted}`}>
-                      Configurações
-                    </p>
-                    
-                    <div className="px-2.5 py-1.5 flex flex-col items-center gap-1.5 select-none text-center">
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Ordem de Entrada</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold transition-colors ${!alternatingOrder ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>A</span>
-                        <button
-                          onClick={() => {
-                            const nextVal = !alternatingOrder;
-                            setAlternatingOrder(nextVal);
-                            triggerToast(nextVal ? "Modo de entrada alternada (B) ativado!" : "Modo de entrada sequencial (A) ativado!", "info");
-                          }}
-                          className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer shrink-0 ${
-                            alternatingOrder 
-                              ? (theme === "escuro" ? "bg-violet-600" : theme === "pastel" ? "bg-[#8A6F53]" : "bg-indigo-600") 
-                              : "bg-slate-300 dark:bg-slate-700"
-                          }`}
-                          title="Modo de Entrada: A (Sequencial) ou B (Alternada)"
-                        >
-                          <div
-                            className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
-                              alternatingOrder ? "translate-x-4" : "translate-x-0"
-                            }`}
-                          />
-                        </button>
-                        <span className={`text-xs font-bold transition-colors ${alternatingOrder ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>B</span>
-                      </div>
-                    </div>
-
-                    <div className="border-t my-2 border-slate-100 dark:border-slate-800" />
-
-                    <div className="px-2.5 py-1.5 flex flex-col items-center gap-1.5 select-none text-center">
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Ordem de Troca</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs font-bold transition-colors ${swapOrderMode === "A" ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>A</span>
-                        <button
-                          onClick={() => {
-                            const nextMode = swapOrderMode === "A" ? "B" : "A";
-                            setSwapOrderMode(nextMode);
-                            const updated = reassignHierarchyValues(teamA, teamB, reserves, nextMode, consecutiveWinsTeam);
-                            setTeamA(updated.teamA);
-                            setTeamB(updated.teamB);
-                            setReserves(updated.reserves);
-                            triggerToast(`Ordem de Troca alterada para o Modo ${nextMode}!`, "info");
-                          }}
-                          className={`w-9 h-5 flex items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none cursor-pointer shrink-0 ${
-                            swapOrderMode === "B" 
-                              ? (theme === "escuro" ? "bg-violet-600" : theme === "pastel" ? "bg-[#8A6F53]" : "bg-indigo-600") 
-                              : "bg-slate-300 dark:bg-slate-700"
-                          }`}
-                          title="Modo de Hierarquia: A (Novo sistema 1-6/7-12) ou B (Antigo impares/pares)"
-                        >
-                          <div
-                            className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-200 ${
-                              swapOrderMode === "B" ? "translate-x-4" : "translate-x-0"
-                            }`}
-                          />
-                        </button>
-                        <span className={`text-xs font-bold transition-colors ${swapOrderMode === "B" ? "text-indigo-600 dark:text-violet-400 font-extrabold" : "text-slate-400"}`}>B</span>
-                      </div>
-                    </div>
                   </div>
                 </>
               )}
@@ -1378,7 +907,27 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Seed data utilities inside control panel */}
+                <div className="pt-4 border-t space-y-3 border-slate-100 dark:border-slate-800">
+                  <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${styles.textMuted}`}>
+                    Utilitários de Roster
+                  </span>
 
+                  <button
+                    type="button"
+                    onClick={handleSeedDemoPlayers}
+                    className={`w-full border border-dashed text-slate-600 dark:text-slate-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      theme === "escuro" 
+                        ? "border-slate-800 bg-slate-900/40 hover:bg-slate-900" 
+                        : theme === "pastel" 
+                        ? "border-[#DCD0C0] bg-[#FAF5ED]/50 hover:bg-[#FAF5ED]" 
+                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Sparkles className="w-4 h-4 text-indigo-500" />
+                    Gerar 14 Jogadores de Teste
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1430,18 +979,6 @@ export default function App() {
                                   setSwappingPlayerId(player.id);
                                 }
                               }}
-                              isUnlocked={unlockedPlayerIds.includes(player.id)}
-                              onToggleUnlock={() => togglePlayerUnlock(player.id)}
-                              onMoveToTop={() => handleManualMovePlayer("A", "top", player.id)}
-                              onMoveUp={() => handleManualMovePlayer("A", "up", player.id)}
-                              onMoveDown={() => handleManualMovePlayer("A", "down", player.id)}
-                              onMoveToBottom={() => handleManualMovePlayer("A", "bottom", player.id)}
-                              isLast={index === teamA.length - 1}
-                              onDragStart={(e) => handleDragStart(e, player.id, "A")}
-                              onDragOver={(e) => handleDragOverCard(e, player.id, "A")}
-                              onDrop={(e) => handleDropPlayer(e, player.id, "A")}
-                              onDragEnd={handleDragEnd}
-                              isDragging={draggedPlayerId === player.id}
                             />
                           ))
                         ) : (
@@ -1514,18 +1051,6 @@ export default function App() {
                                   setSwappingPlayerId(player.id);
                                 }
                               }}
-                              isUnlocked={unlockedPlayerIds.includes(player.id)}
-                              onToggleUnlock={() => togglePlayerUnlock(player.id)}
-                              onMoveToTop={() => handleManualMovePlayer("B", "top", player.id)}
-                              onMoveUp={() => handleManualMovePlayer("B", "up", player.id)}
-                              onMoveDown={() => handleManualMovePlayer("B", "down", player.id)}
-                              onMoveToBottom={() => handleManualMovePlayer("B", "bottom", player.id)}
-                              isLast={index === teamB.length - 1}
-                              onDragStart={(e) => handleDragStart(e, player.id, "B")}
-                              onDragOver={(e) => handleDragOverCard(e, player.id, "B")}
-                              onDrop={(e) => handleDropPlayer(e, player.id, "B")}
-                              onDragEnd={handleDragEnd}
-                              isDragging={draggedPlayerId === player.id}
                             />
                           ))
                         ) : (
@@ -1589,27 +1114,15 @@ export default function App() {
                             isSwappingModeActive={!!swappingPlayerId}
                             onSwap={() => {
                               if (swappingPlayerId) {
-                                  if (swappingPlayerId === player.id) {
-                                    setSwappingPlayerId(null);
-                                  } else {
-                                    handleSwapPlayers(swappingPlayerId, player.id);
-                                  }
+                                if (swappingPlayerId === player.id) {
+                                  setSwappingPlayerId(null);
+                                } else {
+                                  handleSwapPlayers(swappingPlayerId, player.id);
+                                }
                               } else {
-                                  setSwappingPlayerId(player.id);
+                                setSwappingPlayerId(player.id);
                               }
                             }}
-                            isUnlocked={unlockedPlayerIds.includes(player.id)}
-                            onToggleUnlock={() => togglePlayerUnlock(player.id)}
-                            onMoveToTop={() => handleManualMovePlayer("reserves", "top", player.id)}
-                            onMoveUp={() => handleManualMovePlayer("reserves", "up", player.id)}
-                            onMoveDown={() => handleManualMovePlayer("reserves", "down", player.id)}
-                            onMoveToBottom={() => handleManualMovePlayer("reserves", "bottom", player.id)}
-                            isLast={index === reserves.length - 1}
-                            onDragStart={(e) => handleDragStart(e, player.id, "reserves")}
-                            onDragOver={(e) => handleDragOverCard(e, player.id, "reserves")}
-                            onDrop={(e) => handleDropPlayer(e, player.id, "reserves")}
-                            onDragEnd={handleDragEnd}
-                            isDragging={draggedPlayerId === player.id}
                           />
                         ))}
                       </AnimatePresence>
@@ -1696,6 +1209,48 @@ export default function App() {
                   </button>
                 </form>
               </div>
+
+              {/* Rules Help Card inside Cadastro tab */}
+              <div className={`rounded-2xl p-6 shadow-md space-y-3.5 ${styles.rulesBg}`}>
+                <h3 className={`font-display font-semibold text-sm flex items-center gap-2 ${styles.rulesTitle}`}>
+                  <HelpCircle className="w-5 h-5 text-indigo-400" />
+                  Regras de Funcionamento e Rodízio de Jogadores
+                </h3>
+                <ul className={`text-xs space-y-2.5 list-disc pl-4 font-normal ${styles.rulesText}`}>
+                  <li>
+                    <strong className={styles.rulesStrong}>Hierarquia Fixa:</strong> O Time A recebe valores ímpares (1, 3, 5, 7, 9, 11). O Time B recebe valores pares (2, 4, 6, 8, 10, 12).
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Cadastro Reserva:</strong> Jogadores excedentes recebem numerações sequenciais a partir de 13.
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Rotação de Perdedor:</strong> Os 6 perdedores vão para o fim da fila de reserva. Se a reserva tiver menos de 6 jogadores, os disponíveis entram no topo do time perdedor, empurrando os últimos do time para o fim da reserva.
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Exclusão Inteligente:</strong> Se um jogador ativo for excluído, o 1° da reserva sobe imediatamente e entra no topo daquele time.
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Mistura Balanceada:</strong> Troca 3 jogadores aleatórios de cada time, garantindo quantidade igual de gêneros em cada time (se ímpar, Time A fica com 1 homem a mais). Os jogadores são listados respeitando sua numeração original.
+                  </li>
+                </ul>
+              </div>
+
+              {/* Limpar Tudo dangerous action at the bottom of left column, under the rules */}
+              {registeredPlayers.length > 0 && (
+                <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex items-center justify-between`}>
+                  <div className="space-y-0.5">
+                    <p className={`text-[11px] font-bold uppercase tracking-wider text-rose-500`}>Ação Perigosa</p>
+                    <p className={`text-[10px] ${styles.textMuted}`}>Zerar totalmente o banco de dados</p>
+                  </div>
+                  <button
+                    onClick={() => setShowClearConfirm(true)}
+                    className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold flex items-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-500/10"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Limpar Tudo
+                  </button>
+                </div>
+              )}
 
             </div>
 
@@ -1826,48 +1381,6 @@ export default function App() {
                 </div>
 
               </div>
-
-              {/* Rules Help Card inside Cadastro tab */}
-              <div className={`rounded-2xl p-6 shadow-md space-y-3.5 ${styles.rulesBg}`}>
-                <h3 className={`font-display font-semibold text-sm flex items-center gap-2 ${styles.rulesTitle}`}>
-                  <HelpCircle className="w-5 h-5 text-indigo-400" />
-                  Regras de Funcionamento e Rodízio de Jogadores
-                </h3>
-                <ul className={`text-xs space-y-2.5 list-disc pl-4 font-normal ${styles.rulesText}`}>
-                  <li>
-                    <strong className={styles.rulesStrong}>Hierarquia Fixa:</strong> O Time A recebe valores ímpares (1, 3, 5, 7, 9, 11). O Time B recebe valores pares (2, 4, 6, 8, 10, 12).
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Cadastro Reserva:</strong> Jogadores excedentes recebem numerações sequenciais a partir de 13.
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Rotação de Perdedor:</strong> Os 6 perdedores vão para o fim da fila de reserva. Se a reserva tiver menos de 6 jogadores, os disponíveis entram no topo do time perdedor, empurrando os últimos do time para o fim da reserva.
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Exclusão Inteligente:</strong> Se um jogador ativo for excluído, o 1° da reserva sobe imediatamente e entra no topo daquele time.
-                  </li>
-                  <li>
-                    <strong className={styles.rulesStrong}>Mistura Balanceada:</strong> Troca 3 jogadores aleatórios de cada time, garantindo quantidade igual de gêneros em cada time (se ímpar, Time A fica com 1 homem a mais). Os jogadores são listados respeitando sua numeração original.
-                  </li>
-                </ul>
-              </div>
-
-              {/* Limpar Tudo dangerous action at the bottom of left column, under the rules */}
-              {registeredPlayers.length > 0 && (
-                <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex items-center justify-between`}>
-                  <div className="space-y-0.5">
-                    <p className={`text-[11px] font-bold uppercase tracking-wider text-rose-500`}>Ação Perigosa</p>
-                    <p className={`text-[10px] ${styles.textMuted}`}>Zerar totalmente o banco de dados</p>
-                  </div>
-                  <button
-                    onClick={() => setShowClearConfirm(true)}
-                    className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold flex items-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-500/10"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Limpar Tudo
-                  </button>
-                </div>
-              )}
 
             </div>
           </div>
@@ -2051,108 +1564,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* CONSECUTIVE WINS WARNING DIALOG */}
-      <AnimatePresence>
-        {showConsecutiveWinsModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className={`rounded-2xl shadow-xl max-w-md w-full p-6 border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
-            >
-              <div className="flex items-center gap-3 text-indigo-500 mb-3">
-                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl">
-                  <Trophy className="w-6 h-6 text-yellow-500 animate-bounce" />
-                </div>
-                <h3 className={`font-display font-bold text-lg ${styles.textBold}`}>
-                  Sequência de Vitórias!
-                </h3>
-              </div>
-              <p className={`text-xs leading-relaxed ${styles.textMuted}`}>
-                O time <strong className="text-amber-500 font-extrabold">{consecutiveWinsTeam === "A" ? "Time A" : "Time B"}</strong> ganhou 3 partidas seguidas! Deseja embaralhar os jogadores a fim de re-balancear os times?
-              </p>
-              <div className="flex gap-2.5 mt-6 justify-end">
-                <button
-                  type="button"
-                  className="px-4 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
-                  onClick={() => {
-                    setShowConsecutiveWinsModal(false);
-                    resetWinStreak();
-                  }}
-                >
-                  Não, Manter
-                </button>
-                <button
-                  type="button"
-                  className={`px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition-all cursor-pointer flex items-center gap-1.5`}
-                  onClick={() => {
-                    setShowConsecutiveWinsModal(false);
-                    resetWinStreak();
-                    handleMix();
-                  }}
-                >
-                  <Shuffle className="w-3.5 h-3.5" />
-                  Sim, Embaralhar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* GENDER IMBALANCE WARNING DIALOG */}
-      <AnimatePresence>
-        {showGenderImbalanceModal && imbalanceModalData && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className={`rounded-2xl shadow-xl max-w-md w-full p-6 border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
-            >
-              <div className="flex items-center gap-3 text-indigo-500 mb-3">
-                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl">
-                  <AlertCircle className="w-6 h-6 text-indigo-500" />
-                </div>
-                <h3 className={`font-display font-bold text-lg ${styles.textBold}`}>
-                  Desequilíbrio de Gênero!
-                </h3>
-              </div>
-              <p className={`text-xs leading-relaxed ${styles.textMuted}`}>
-                Atenção! O <strong className={styles.textBold}>{imbalanceModalData.teamName}</strong> tem <span className="font-bold text-indigo-500">{imbalanceModalData.diff}</span> {imbalanceModalData.moreGender} a mais que o <strong className={styles.textBold}>{imbalanceModalData.otherTeamName}</strong>. Deseja misturar os times para equilibrar?
-              </p>
-              <div className="flex gap-2.5 mt-6 justify-end">
-                <button
-                  type="button"
-                  className="px-4 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
-                  onClick={() => {
-                    const currentHash = teamA.map((p) => p.id).sort().join(",") + "|" + teamB.map((p) => p.id).sort().join(",");
-                    setLastWarnedRostersHash(currentHash);
-                    setShowGenderImbalanceModal(false);
-                  }}
-                >
-                  Não, Manter
-                </button>
-                <button
-                  type="button"
-                  className={`px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md transition-all cursor-pointer flex items-center gap-1.5`}
-                  onClick={() => {
-                    const currentHash = teamA.map((p) => p.id).sort().join(",") + "|" + teamB.map((p) => p.id).sort().join(",");
-                    setLastWarnedRostersHash(currentHash);
-                    setShowGenderImbalanceModal(false);
-                    handleMix();
-                  }}
-                >
-                  <Shuffle className="w-3.5 h-3.5" />
-                  Sim, Misturar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* TOAST NOTIFICATION CONTAINER */}
       <div className="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none max-w-sm w-full">
         <AnimatePresence>
@@ -2209,18 +1620,6 @@ interface PlayerCardProps {
   isSwappingSelected?: boolean;
   isSwappingModeActive?: boolean;
   theme?: "claro" | "escuro" | "pastel";
-  isUnlocked?: boolean;
-  onToggleUnlock?: () => void;
-  onMoveToTop?: () => void;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
-  onMoveToBottom?: () => void;
-  isLast?: boolean;
-  onDragStart?: (e: React.DragEvent) => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDrop?: (e: React.DragEvent) => void;
-  onDragEnd?: () => void;
-  isDragging?: boolean;
 }
 
 function PlayerCard({
@@ -2234,30 +1633,13 @@ function PlayerCard({
   isSwappingSelected = false,
   isSwappingModeActive = false,
   theme = "claro",
-  isUnlocked = false,
-  onToggleUnlock,
-  onMoveToTop,
-  onMoveUp,
-  onMoveDown,
-  onMoveToBottom,
-  isLast = false,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
-  isDragging = false,
 }: PlayerCardProps) {
   const isMale = player.gender === Gender.MALE;
-  const [isDragOver, setIsDragOver] = useState(false);
 
   const cardStyles = {
     claro: {
       bg: isSwappingSelected 
         ? "bg-indigo-50 border-indigo-400 ring-2 ring-indigo-400/20"
-        : isDragOver
-        ? "bg-amber-50/40 border-amber-400 ring-2 ring-amber-400/30 scale-[1.01]"
-        : isUnlocked
-        ? "bg-amber-50/10 border-amber-200 hover:border-amber-400/60 transition-colors"
         : "bg-white border-slate-100",
       text: "text-slate-900",
       textSub: "text-slate-500",
@@ -2273,10 +1655,6 @@ function PlayerCard({
     escuro: {
       bg: isSwappingSelected
         ? "bg-violet-950/60 border-violet-500 ring-2 ring-violet-500/30"
-        : isDragOver
-        ? "bg-amber-500/10 border-amber-500 ring-2 ring-amber-500/30 scale-[1.01]"
-        : isUnlocked
-        ? "bg-amber-950/10 border-amber-900/40 hover:border-amber-700/60 transition-colors"
         : "bg-slate-900 border-slate-800/80",
       text: "text-white",
       textSub: "text-slate-400",
@@ -2292,10 +1670,6 @@ function PlayerCard({
     pastel: {
       bg: isSwappingSelected
         ? "bg-[#FAF1E6] border-[#8A6F53] ring-2 ring-[#8A6F53]/20"
-        : isDragOver
-        ? "bg-[#FAF1E6] border-amber-500 ring-2 ring-amber-500/20 scale-[1.01]"
-        : isUnlocked
-        ? "bg-[#FAF5ED] border-amber-300/60 hover:border-amber-500/60 transition-colors"
         : "bg-white border-[#E8DFCF]",
       text: "text-[#3D2F20]",
       textSub: "text-[#80705E]",
@@ -2314,42 +1688,14 @@ function PlayerCard({
 
   return (
     <motion.div
-      layout
       layoutId={player.id}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
-      draggable={isUnlocked}
-      onDragStart={isUnlocked ? onDragStart : undefined}
-      onDragEnd={onDragEnd}
-      onDragEnter={(e) => {
-        e.preventDefault();
-        setIsDragOver(true);
-      }}
-      onDragLeave={() => {
-        setIsDragOver(false);
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        if (onDragOver) onDragOver(e);
-      }}
-      onDrop={(e) => {
-        setIsDragOver(false);
-        if (onDrop) onDrop(e);
-      }}
-      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${
-        isUnlocked ? "cursor-grab active:cursor-grabbing border-amber-300/80 dark:border-amber-700/80" : ""
-      } ${isDragging ? "opacity-30 border-dashed border-amber-500 bg-amber-500/5 scale-[0.98]" : curCard.bg}`}
+      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${curCard.bg}`}
     >
       <div className="flex items-center gap-3 min-w-0">
-        {/* Grip Handle for Reordering */}
-        {isUnlocked && (
-          <div className="text-amber-500/60 hover:text-amber-500 shrink-0 select-none animate-pulse">
-            <GripVertical className="w-4 h-4" />
-          </div>
-        )}
-
         {/* Hierarchy Number Badge */}
         <span
           className={`font-mono text-xs font-bold px-2 py-1 rounded-lg shrink-0 min-w-[28px] text-center ${curCard.badgeHierarchy}`}
@@ -2375,115 +1721,38 @@ function PlayerCard({
 
       {/* Actions */}
       <div className="flex items-center gap-1 shrink-0 ml-2">
-        {/* Lock/Unlock Toggle Button */}
+        {onSwap && (
+          <button
+            type="button"
+            onClick={onSwap}
+            title={isSwappingSelected ? "Cancelar troca" : "Trocar jogador"}
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              isSwappingSelected
+                ? "text-amber-500 bg-amber-500/10"
+                : isSwappingModeActive
+                ? "text-indigo-500 bg-indigo-500/10 animate-pulse"
+                : `text-slate-400 hover:text-indigo-500 ${curCard.buttonHover}`
+            }`}
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           type="button"
-          onClick={onToggleUnlock}
-          title={isUnlocked ? "Bloquear posição do jogador (Cadeado Desbloqueado)" : "Desbloquear posição para ordenação (Cadeado Bloqueado)"}
-          className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-            isUnlocked
-              ? "text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
-              : `text-slate-400 hover:text-amber-500 ${curCard.buttonHover}`
-          }`}
+          onClick={onEdit}
+          title="Editar Nome/Gênero"
+          className={`text-slate-400 hover:text-indigo-500 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
         >
-          {isUnlocked ? (
-            <Unlock className="w-3.5 h-3.5" />
-          ) : (
-            <Lock className="w-3.5 h-3.5" />
-          )}
+          <Edit2 className="w-3.5 h-3.5" />
         </button>
-
-        {isUnlocked ? (
-          <>
-            <button
-              type="button"
-              onClick={onMoveToTop}
-              disabled={slotIndex === 0}
-              title="Ir para o Início (Topo)"
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                slotIndex === 0
-                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
-                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
-              }`}
-            >
-              <ChevronsUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onMoveUp}
-              disabled={slotIndex === 0}
-              title="Subir Posição"
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                slotIndex === 0
-                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
-                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
-              }`}
-            >
-              <ArrowUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onMoveDown}
-              disabled={isLast}
-              title="Descer Posição"
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLast
-                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
-                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
-              }`}
-            >
-              <ArrowDown className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onMoveToBottom}
-              disabled={isLast}
-              title="Ir para o Fim (Fundo)"
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                isLast
-                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
-                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
-              }`}
-            >
-              <ChevronsDown className="w-3.5 h-3.5" />
-            </button>
-          </>
-        ) : (
-          <>
-            {onSwap && (
-              <button
-                type="button"
-                onClick={onSwap}
-                title={isSwappingSelected ? "Cancelar troca" : "Trocar jogador"}
-                className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                  isSwappingSelected
-                    ? "text-amber-500 bg-amber-500/10"
-                    : isSwappingModeActive
-                    ? "text-indigo-500 bg-indigo-500/10 animate-pulse"
-                    : `text-slate-400 hover:text-indigo-500 ${curCard.buttonHover}`
-                }`}
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onEdit}
-              title="Editar Nome/Gênero"
-              className={`text-slate-400 hover:text-indigo-500 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={onDelete}
-              title={isReserve ? "Remover da reserva" : "Remover e colocar reserva no topo"}
-              className={`text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </>
-        )}
+        <button
+          type="button"
+          onClick={onDelete}
+          title={isReserve ? "Remover da reserva" : "Remover e colocar reserva no topo"}
+          className={`text-slate-400 hover:text-rose-600 p-1.5 rounded-lg transition-colors cursor-pointer ${curCard.buttonHover}`}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
     </motion.div>
   );

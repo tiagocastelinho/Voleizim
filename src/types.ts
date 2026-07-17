@@ -17,62 +17,31 @@ export interface Player {
 
 /**
  * Reassigns the hierarchy numbers based on current order inside each team and reserves.
- * Under System B:
  * Team A gets 1, 3, 5, 7, 9, 11
  * Team B gets 2, 4, 6, 8, 10, 12
- * Reserves get 13, 14, 15...
- * 
- * Under System A:
- * If consecutiveWinsTeam === "B", Team B gets 1..6, Team A gets 7..12.
- * Else (Team A won or no wins/reset), Team A gets 1..6, Team B gets 7..12.
  * Reserves get 13, 14, 15...
  */
 export function reassignHierarchyValues(
   teamA: Player[],
   teamB: Player[],
-  reserves: Player[],
-  swapOrderMode?: "A" | "B",
-  consecutiveWinsTeam?: "A" | "B" | null
+  reserves: Player[]
 ): { teamA: Player[]; teamB: Player[]; reserves: Player[] } {
-  if (swapOrderMode === "A") {
-    const isWinnerB = consecutiveWinsTeam === "B";
-    const startA = isWinnerB ? 7 : 1;
-    const startB = isWinnerB ? 1 : 7;
+  const newTeamA = teamA.map((p, index) => ({
+    ...p,
+    hierarchyValue: 1 + index * 2,
+  }));
 
-    const newTeamA = teamA.map((p, index) => ({
-      ...p,
-      hierarchyValue: startA + index,
-    }));
+  const newTeamB = teamB.map((p, index) => ({
+    ...p,
+    hierarchyValue: 2 + index * 2,
+  }));
 
-    const newTeamB = teamB.map((p, index) => ({
-      ...p,
-      hierarchyValue: startB + index,
-    }));
+  const newReserves = reserves.map((p, index) => ({
+    ...p,
+    hierarchyValue: 13 + index,
+  }));
 
-    const newReserves = reserves.map((p, index) => ({
-      ...p,
-      hierarchyValue: 13 + index,
-    }));
-
-    return { teamA: newTeamA, teamB: newTeamB, reserves: newReserves };
-  } else {
-    const newTeamA = teamA.map((p, index) => ({
-      ...p,
-      hierarchyValue: 1 + index * 2,
-    }));
-
-    const newTeamB = teamB.map((p, index) => ({
-      ...p,
-      hierarchyValue: 2 + index * 2,
-    }));
-
-    const newReserves = reserves.map((p, index) => ({
-      ...p,
-      hierarchyValue: 13 + index,
-    }));
-
-    return { teamA: newTeamA, teamB: newTeamB, reserves: newReserves };
-  }
+  return { teamA: newTeamA, teamB: newTeamB, reserves: newReserves };
 }
 
 /**
