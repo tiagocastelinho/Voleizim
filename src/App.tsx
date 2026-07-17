@@ -578,8 +578,10 @@ export default function App() {
     triggerToast(`Posição de "${playerToMove.name}" ajustada manualmente!`, "success");
   };
 
-  // Drag and drop handlers with fluid live reordering (Photoshop-like) using Framer Motion
-  const handleFramerDragStart = (id: string, group: "A" | "B" | "reserves") => {
+  // Drag and drop handlers with fluid live reordering (Photoshop-like)
+  const handleDragStart = (e: React.DragEvent, id: string, group: "A" | "B" | "reserves") => {
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.setData("group", group);
     setDraggedPlayerId(id);
     setDraggedGroup(group);
 
@@ -588,49 +590,48 @@ export default function App() {
     resetWinStreak();
   };
 
-  const handleFramerDrag = (_e: any, info: any, id: string, group: "A" | "B" | "reserves") => {
-    if (!id || !group) return;
-
-    // Use absolute coordinates of the touch/cursor point
-    const x = info.point.x;
-    const y = info.point.y;
-    const elem = document.elementFromPoint(x, y);
-    if (!elem) return;
-
-    const cardElem = elem.closest("[data-player-id]");
-    if (!cardElem) return;
-
-    const targetId = cardElem.getAttribute("data-player-id");
-    const targetGroup = cardElem.getAttribute("data-player-group") as "A" | "B" | "reserves";
-
-    if (targetId && targetGroup && targetId !== id && targetGroup === group) {
-      // Live fluid reordering: shift players as soon as we drag over them
-      let listToModify: Player[] = [];
-      if (group === "A") listToModify = [...teamA];
-      else if (group === "B") listToModify = [...teamB];
-      else listToModify = [...reserves];
-
-      const originalIndex = listToModify.findIndex((p) => p.id === id);
-      const targetIndex = listToModify.findIndex((p) => p.id === targetId);
-
-      if (originalIndex === -1 || targetIndex === -1) return;
-
-      const [playerToMove] = listToModify.splice(originalIndex, 1);
-      listToModify.splice(targetIndex, 0, playerToMove);
-
-      let updatedA = group === "A" ? listToModify : [...teamA];
-      let updatedB = group === "B" ? listToModify : [...teamB];
-      let updatedReserves = group === "reserves" ? listToModify : [...reserves];
-
-      const reassigned = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
-
-      setTeamA(reassigned.teamA);
-      setTeamB(reassigned.teamB);
-      setReserves(reassigned.reserves);
+  const handleDragOverCard = (e: React.DragEvent, targetId: string, group: "A" | "B" | "reserves") => {
+    e.preventDefault();
+    if (!draggedPlayerId || draggedGroup !== group || draggedPlayerId === targetId) {
+      return;
     }
+
+    // Live fluid reordering: shift players as soon as we drag over them
+    let listToModify: Player[] = [];
+    if (group === "A") listToModify = [...teamA];
+    else if (group === "B") listToModify = [...teamB];
+    else listToModify = [...reserves];
+
+    const originalIndex = listToModify.findIndex((p) => p.id === draggedPlayerId);
+    const targetIndex = listToModify.findIndex((p) => p.id === targetId);
+
+    if (originalIndex === -1 || targetIndex === -1) return;
+
+    const [playerToMove] = listToModify.splice(originalIndex, 1);
+    listToModify.splice(targetIndex, 0, playerToMove);
+
+    let updatedA = group === "A" ? listToModify : [...teamA];
+    let updatedB = group === "B" ? listToModify : [...teamB];
+    let updatedReserves = group === "reserves" ? listToModify : [...reserves];
+
+    const reassigned = reassignHierarchyValues(updatedA, updatedB, updatedReserves, swapOrderMode, consecutiveWinsTeam);
+
+    setTeamA(reassigned.teamA);
+    setTeamB(reassigned.teamB);
+    setReserves(reassigned.reserves);
+  };
+
+  const handleDragOver = (e: React.DragEvent, group: "A" | "B" | "reserves") => {
+    e.preventDefault();
   };
 
   const handleDragEnd = () => {
+    setDraggedPlayerId(null);
+    setDraggedGroup(null);
+  };
+
+  const handleDropPlayer = (e: React.DragEvent, targetId: string, targetGroup: "A" | "B" | "reserves") => {
+    e.preventDefault();
     setDraggedPlayerId(null);
     setDraggedGroup(null);
   };
@@ -1371,11 +1372,14 @@ export default function App() {
                               }}
                               isUnlocked={unlockedPlayerIds.includes(player.id)}
                               onToggleUnlock={() => togglePlayerUnlock(player.id)}
+                              onMoveToTop={() => handleManualMovePlayer("A", "top", player.id)}
                               onMoveUp={() => handleManualMovePlayer("A", "up", player.id)}
                               onMoveDown={() => handleManualMovePlayer("A", "down", player.id)}
+                              onMoveToBottom={() => handleManualMovePlayer("A", "bottom", player.id)}
                               isLast={index === teamA.length - 1}
-                              onDragStart={() => handleFramerDragStart(player.id, "A")}
-                              onDrag={(e, info) => handleFramerDrag(e, info, player.id, "A")}
+                              onDragStart={(e) => handleDragStart(e, player.id, "A")}
+                              onDragOver={(e) => handleDragOverCard(e, player.id, "A")}
+                              onDrop={(e) => handleDropPlayer(e, player.id, "A")}
                               onDragEnd={handleDragEnd}
                               isDragging={draggedPlayerId === player.id}
                             />
@@ -1452,11 +1456,14 @@ export default function App() {
                               }}
                               isUnlocked={unlockedPlayerIds.includes(player.id)}
                               onToggleUnlock={() => togglePlayerUnlock(player.id)}
+                              onMoveToTop={() => handleManualMovePlayer("B", "top", player.id)}
                               onMoveUp={() => handleManualMovePlayer("B", "up", player.id)}
                               onMoveDown={() => handleManualMovePlayer("B", "down", player.id)}
+                              onMoveToBottom={() => handleManualMovePlayer("B", "bottom", player.id)}
                               isLast={index === teamB.length - 1}
-                              onDragStart={() => handleFramerDragStart(player.id, "B")}
-                              onDrag={(e, info) => handleFramerDrag(e, info, player.id, "B")}
+                              onDragStart={(e) => handleDragStart(e, player.id, "B")}
+                              onDragOver={(e) => handleDragOverCard(e, player.id, "B")}
+                              onDrop={(e) => handleDropPlayer(e, player.id, "B")}
                               onDragEnd={handleDragEnd}
                               isDragging={draggedPlayerId === player.id}
                             />
@@ -1533,11 +1540,14 @@ export default function App() {
                             }}
                             isUnlocked={unlockedPlayerIds.includes(player.id)}
                             onToggleUnlock={() => togglePlayerUnlock(player.id)}
+                            onMoveToTop={() => handleManualMovePlayer("reserves", "top", player.id)}
                             onMoveUp={() => handleManualMovePlayer("reserves", "up", player.id)}
                             onMoveDown={() => handleManualMovePlayer("reserves", "down", player.id)}
+                            onMoveToBottom={() => handleManualMovePlayer("reserves", "bottom", player.id)}
                             isLast={index === reserves.length - 1}
-                            onDragStart={() => handleFramerDragStart(player.id, "reserves")}
-                            onDrag={(e, info) => handleFramerDrag(e, info, player.id, "reserves")}
+                            onDragStart={(e) => handleDragStart(e, player.id, "reserves")}
+                            onDragOver={(e) => handleDragOverCard(e, player.id, "reserves")}
+                            onDrop={(e) => handleDropPlayer(e, player.id, "reserves")}
                             onDragEnd={handleDragEnd}
                             isDragging={draggedPlayerId === player.id}
                           />
@@ -1782,7 +1792,22 @@ export default function App() {
                 </ul>
               </div>
 
-
+              {/* Limpar Tudo dangerous action at the bottom of left column, under the rules */}
+              {registeredPlayers.length > 0 && (
+                <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex items-center justify-between`}>
+                  <div className="space-y-0.5">
+                    <p className={`text-[11px] font-bold uppercase tracking-wider text-rose-500`}>Ação Perigosa</p>
+                    <p className={`text-[10px] ${styles.textMuted}`}>Zerar totalmente o banco de dados</p>
+                  </div>
+                  <button
+                    onClick={() => setShowClearConfirm(true)}
+                    className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold flex items-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-500/10"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Limpar Tudo
+                  </button>
+                </div>
+              )}
 
             </div>
           </div>
@@ -2126,11 +2151,14 @@ interface PlayerCardProps {
   theme?: "claro" | "escuro" | "pastel";
   isUnlocked?: boolean;
   onToggleUnlock?: () => void;
+  onMoveToTop?: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  onMoveToBottom?: () => void;
   isLast?: boolean;
-  onDragStart?: () => void;
-  onDrag?: (e: any, info: any) => void;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
   onDragEnd?: () => void;
   isDragging?: boolean;
 }
@@ -2148,11 +2176,14 @@ function PlayerCard({
   theme = "claro",
   isUnlocked = false,
   onToggleUnlock,
+  onMoveToTop,
   onMoveUp,
   onMoveDown,
+  onMoveToBottom,
   isLast = false,
   onDragStart,
-  onDrag,
+  onDragOver,
+  onDrop,
   onDragEnd,
   isDragging = false,
 }: PlayerCardProps) {
@@ -2229,15 +2260,25 @@ function PlayerCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
-      drag={isUnlocked ? "y" : false}
-      dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={0.15}
+      draggable={isUnlocked}
       onDragStart={isUnlocked ? onDragStart : undefined}
-      onDrag={isUnlocked ? onDrag : undefined}
       onDragEnd={onDragEnd}
-      data-player-id={player.id}
-      data-player-group={isReserve ? "reserves" : (accentColor === "indigo" ? "A" : "B")}
-      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 select-none ${
+      onDragEnter={(e) => {
+        e.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={() => {
+        setIsDragOver(false);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (onDragOver) onDragOver(e);
+      }}
+      onDrop={(e) => {
+        setIsDragOver(false);
+        if (onDrop) onDrop(e);
+      }}
+      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${
         isUnlocked ? "cursor-grab active:cursor-grabbing border-amber-300/80 dark:border-amber-700/80" : ""
       } ${isDragging ? "opacity-30 border-dashed border-amber-500 bg-amber-500/5 scale-[0.98]" : curCard.bg}`}
     >
@@ -2296,6 +2337,19 @@ function PlayerCard({
           <>
             <button
               type="button"
+              onClick={onMoveToTop}
+              disabled={slotIndex === 0}
+              title="Ir para o Início (Topo)"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                slotIndex === 0
+                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
+                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
+              }`}
+            >
+              <ChevronsUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
               onClick={onMoveUp}
               disabled={slotIndex === 0}
               title="Subir Posição"
@@ -2319,6 +2373,19 @@ function PlayerCard({
               }`}
             >
               <ArrowDown className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveToBottom}
+              disabled={isLast}
+              title="Ir para o Fim (Fundo)"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLast
+                  ? "text-slate-200 dark:text-slate-800/40 cursor-not-allowed"
+                  : "text-amber-500 hover:bg-amber-500/10 dark:hover:bg-amber-500/10"
+              }`}
+            >
+              <ChevronsDown className="w-3.5 h-3.5" />
             </button>
           </>
         ) : (
