@@ -19,15 +19,19 @@
       "properties": {
         "teamA": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "$ref": "#/entities/Player" }
         },
         "teamB": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "$ref": "#/entities/Player" }
         },
         "reserves": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "$ref": "#/entities/Player" }
+        },
+        "registeredPlayers": {
+          "type": "array",
+          "items": { "$ref": "#/entities/Player" }
         },
         "theme": { "type": "string", "enum": ["claro", "escuro", "pastel"] },
         "history": {
@@ -35,21 +39,22 @@
           "items": {
             "type": "object",
             "properties": {
-              "teamA": { "type": "array", "items": { "type": "string" } },
-              "teamB": { "type": "array", "items": { "type": "string" } },
-              "reserves": { "type": "array", "items": { "type": "string" } }
+              "teamA": { "type": "array", "items": { "$ref": "#/entities/Player" } },
+              "teamB": { "type": "array", "items": { "$ref": "#/entities/Player" } },
+              "reserves": { "type": "array", "items": { "$ref": "#/entities/Player" } }
             }
           }
-        }
+        },
+        "alternatingOrder": { "type": "boolean" },
+        "swapOrderMode": { "type": "string", "enum": ["A", "B"] },
+        "consecutiveWinsTeam": { "type": "string", "enum": ["A", "B"] },
+        "consecutiveWinsCount": { "type": "integer" },
+        "lastWarnedRostersHash": { "type": "string" }
       },
-      "required": ["teamA", "teamB", "reserves", "theme", "history"]
+      "required": ["teamA", "teamB", "reserves", "registeredPlayers", "theme", "history"]
     }
   },
   "firestore": {
-    "/players/{playerId}": {
-      "schema": "Player",
-      "description": "The registered players collection"
-    },
     "/appState/{stateId}": {
       "schema": "AppState",
       "description": "The application state singleton"

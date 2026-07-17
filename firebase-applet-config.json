@@ -7,5 +7,6 @@
   "storageBucket": "phonic-climber-698sv.firebasestorage.app",
   "messagingSenderId": "294435874795",
   "measurementId": "",
-  "oAuthClientId": "294435874795-1p9puu4nug6ve1fse80of7c4svopske0.apps.googleusercontent.com"
+  "oAuthClientId": "294435874795-1p9puu4nug6ve1fse80of7c4svopske0.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

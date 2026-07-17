@@ -38,7 +38,8 @@ import {
 } from "lucide-react";
 import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
-import { db, saveStateToFirestore } from "./firebase";
+import { db, saveStateToFirestore, updateLastSyncedState, isStateIdentical } from "./firebase";
+import { Cloud, CloudOff, RefreshCw } from "lucide-react";
 
 // Design Palette configurations for Claro, Escuro, and Pastel themes
 const themeStyles = {
@@ -260,9 +261,11 @@ export default function App() {
   // Custom confirmation modal
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+  // Firebase sync status state
+  const [firebaseStatus, setFirebaseStatus] = useState<"conectado" | "sincronizando" | "erro" | "inicializando">("inicializando");
+
   // Synchronization control refs to prevent infinite database update loops
   const hasLoadedFromFirebaseRef = React.useRef(false);
-  const incomingUpdateRef = React.useRef(false);
 
   // Real-time synchronization with Firebase Firestore
   useEffect(() => {
@@ -270,7 +273,9 @@ export default function App() {
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        incomingUpdateRef.current = true;
+        
+        // Cache this state string so our local useEffect knows it was a remote change
+        updateLastSyncedState(data);
 
         if (data.teamA !== undefined) setTeamA(data.teamA);
         if (data.teamB !== undefined) setTeamB(data.teamB);
@@ -289,9 +294,7 @@ export default function App() {
         if (data.lastWarnedRostersHash !== undefined) setLastWarnedRostersHash(data.lastWarnedRostersHash);
 
         hasLoadedFromFirebaseRef.current = true;
-        setTimeout(() => {
-          incomingUpdateRef.current = false;
-        }, 0);
+        setFirebaseStatus("conectado");
       } else {
         // Document does not exist in Cloud Firestore yet, let's write current local state
         hasLoadedFromFirebaseRef.current = true;
@@ -308,10 +311,18 @@ export default function App() {
           consecutiveWinsCount,
           lastWarnedRostersHash
         };
-        setDoc(docRef, initialDoc).catch((err) => console.error("Erro ao inicializar Firebase:", err));
+        updateLastSyncedState(initialDoc);
+        setFirebaseStatus("sincronizando");
+        setDoc(docRef, initialDoc)
+          .then(() => setFirebaseStatus("conectado"))
+          .catch((err) => {
+            console.error("Erro ao inicializar Firebase:", err);
+            setFirebaseStatus("erro");
+          });
       }
     }, (error) => {
       console.error("Erro ao sincronizar com o Firebase:", error);
+      setFirebaseStatus("erro");
     });
 
     return () => unsubscribe();
@@ -320,9 +331,8 @@ export default function App() {
   // Upload changes to Firebase Firestore when state changes locally
   useEffect(() => {
     if (!hasLoadedFromFirebaseRef.current) return;
-    if (incomingUpdateRef.current) return;
 
-    saveStateToFirestore({
+    const payload = {
       teamA,
       teamB,
       reserves,
@@ -334,7 +344,20 @@ export default function App() {
       consecutiveWinsTeam,
       consecutiveWinsCount,
       lastWarnedRostersHash
-    });
+    };
+
+    if (isStateIdentical(payload)) {
+      // Direct comparison skips redundant operations
+      return;
+    }
+
+    setFirebaseStatus("sincronizando");
+    saveStateToFirestore(payload)
+      .then(() => setFirebaseStatus("conectado"))
+      .catch((err) => {
+        console.error("Erro ao sincronizar modificação local:", err);
+        setFirebaseStatus("erro");
+      });
   }, [
     teamA,
     teamB,
@@ -1028,6 +1051,43 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Firebase Sync Indicator */}
+            <div className={`flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-xl border transition-colors duration-200 ${
+              firebaseStatus === "conectado"
+                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                : firebaseStatus === "sincronizando"
+                ? "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400"
+                : firebaseStatus === "erro"
+                ? "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400"
+                : "bg-slate-500/10 border-slate-500/20 text-slate-500 dark:text-slate-400"
+            }`} title={`Status de sincronização com o Firebase: ${firebaseStatus}`}>
+              {firebaseStatus === "conectado" && (
+                <>
+                  <Cloud className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="hidden sm:inline">Nuvem Sincronizada</span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                </>
+              )}
+              {firebaseStatus === "sincronizando" && (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                  <span>Sincronizando...</span>
+                </>
+              )}
+              {firebaseStatus === "erro" && (
+                <>
+                  <CloudOff className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Erro de Conexão</span>
+                </>
+              )}
+              {firebaseStatus === "inicializando" && (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                  <span>Conectando...</span>
+                </>
+              )}
+            </div>
+
             {/* Quick Stats Banner */}
             <div className={`flex flex-wrap items-center gap-4 text-xs font-semibold p-2.5 rounded-xl border transition-colors duration-200 ${
               theme === "escuro" 
