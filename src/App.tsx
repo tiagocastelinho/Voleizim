@@ -28,6 +28,9 @@ import {
   Check,
   ArrowLeftRight,
   Power,
+  GripVertical,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
 
@@ -143,6 +146,24 @@ export default function App() {
   const [teamB, setTeamB] = useState<Player[]>([]);
   const [reserves, setReserves] = useState<Player[]>([]);
 
+  // Lock/Unlock manual position system (by default all closed / empty list of unlocked IDs)
+  const [unlockedPlayerIds, setUnlockedPlayerIds] = useState<string[]>([]);
+
+  // Consecutive Wins Tracking State
+  const [consecutiveWinsCount, setConsecutiveWinsCount] = useState<number>(0);
+  const [consecutiveWinsTeam, setConsecutiveWinsTeam] = useState<"A" | "B" | null>(null);
+  const [consecutiveWinsPlayers, setConsecutiveWinsPlayers] = useState<string[]>([]);
+
+  // Dismissal states to avoid repeating alerts until changes happen
+  const [dismissedGenderImbalanceKey, setDismissedGenderImbalanceKey] = useState<string>("");
+  const [dismissedWinsCount, setDismissedWinsCount] = useState<number>(0);
+
+  // State for tracking the winner of the last match (defaults to "A")
+  const [winnerTeam, setWinnerTeam] = useState<"A" | "B">("A");
+
+  // Track the currently dragged player ID
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
   // State for Persistent Database (Aba de Cadastro/Roster)
   const [registeredPlayers, setRegisteredPlayers] = useState<Player[]>([]);
 
@@ -189,6 +210,11 @@ export default function App() {
     const savedReserves = localStorage.getItem("rodizio_reserves");
     const savedRegistered = localStorage.getItem("rodizio_registered");
     const savedTheme = localStorage.getItem("rodizio_theme");
+    const savedWinnerTeam = localStorage.getItem("rodizio_winnerTeam");
+    const savedWinsCount = localStorage.getItem("rodizio_consecutiveWinsCount");
+    const savedWinsTeam = localStorage.getItem("rodizio_consecutiveWinsTeam");
+    const savedWinsPlayers = localStorage.getItem("rodizio_consecutiveWinsPlayers");
+    const savedDismissedWins = localStorage.getItem("rodizio_dismissedWinsCount");
 
     if (savedA) setTeamA(JSON.parse(savedA));
     if (savedB) setTeamB(JSON.parse(savedB));
@@ -197,14 +223,22 @@ export default function App() {
     if (savedTheme === "claro" || savedTheme === "escuro" || savedTheme === "pastel") {
       setTheme(savedTheme);
     }
+    if (savedWinnerTeam === "A" || savedWinnerTeam === "B") {
+      setWinnerTeam(savedWinnerTeam);
+    }
+    if (savedWinsCount) setConsecutiveWinsCount(parseInt(savedWinsCount, 10));
+    if (savedWinsTeam === "A" || savedWinsTeam === "B") setConsecutiveWinsTeam(savedWinsTeam);
+    if (savedWinsPlayers) setConsecutiveWinsPlayers(JSON.parse(savedWinsPlayers));
+    if (savedDismissedWins) setDismissedWinsCount(parseInt(savedDismissedWins, 10));
   }, []);
 
-  // Save active rosters to LocalStorage whenever they change
+  // Save active rosters and winner to LocalStorage whenever they change
   useEffect(() => {
     localStorage.setItem("rodizio_teamA", JSON.stringify(teamA));
     localStorage.setItem("rodizio_teamB", JSON.stringify(teamB));
     localStorage.setItem("rodizio_reserves", JSON.stringify(reserves));
-  }, [teamA, teamB, reserves]);
+    localStorage.setItem("rodizio_winnerTeam", winnerTeam);
+  }, [teamA, teamB, reserves, winnerTeam]);
 
   // Save registered database to LocalStorage whenever it changes
   useEffect(() => {
@@ -215,6 +249,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("rodizio_theme", theme);
   }, [theme]);
+
+  // Save consecutive wins stats to LocalStorage
+  useEffect(() => {
+    localStorage.setItem("rodizio_consecutiveWinsCount", consecutiveWinsCount.toString());
+    localStorage.setItem("rodizio_consecutiveWinsTeam", consecutiveWinsTeam || "");
+    localStorage.setItem("rodizio_consecutiveWinsPlayers", JSON.stringify(consecutiveWinsPlayers));
+    localStorage.setItem("rodizio_dismissedWinsCount", dismissedWinsCount.toString());
+  }, [consecutiveWinsCount, consecutiveWinsTeam, consecutiveWinsPlayers, dismissedWinsCount]);
 
   // Auto-clear notification after delay
   useEffect(() => {
@@ -309,15 +351,19 @@ export default function App() {
     const p1 = arr1[p1Loc.index];
     const p2 = arr2[p2Loc.index];
 
-    // Swap elements in arrays
+    // Swap elements in arrays, maintaining their original individual hierarchyValue properties
     arr1[p1Loc.index] = p2;
     arr2[p2Loc.index] = p1;
 
-    // Recalculate and reassign hierarchy values based on their new positions
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
-    setTeamA(updated.teamA);
-    setTeamB(updated.teamB);
-    setReserves(updated.reserves);
+    // Reset consecutive wins count upon manual swapping
+    setConsecutiveWinsCount(0);
+    setConsecutiveWinsTeam(null);
+    setConsecutiveWinsPlayers([]);
+    setDismissedWinsCount(0);
+
+    setTeamA(updatedA);
+    setTeamB(updatedB);
+    setReserves(updatedReserves);
 
     setSwappingPlayerId(null);
     triggerToast(`Troca efetuada entre "${p1.name}" e "${p2.name}"!`, "success");
@@ -388,20 +434,30 @@ export default function App() {
     let updatedB = [...teamB];
     let updatedReserves = [...reserves];
 
-    // Distribute according to space
-    if (updatedA.length < 6) {
-      updatedA.push({ ...player });
-      triggerToast(`"${player.name}" escalado no Time A.`, "success");
-    } else if (updatedB.length < 6) {
-      updatedB.push({ ...player });
-      triggerToast(`"${player.name}" escalado no Time B.`, "success");
+    // Distribute according to space and alternating rules
+    if (updatedA.length + updatedB.length < 12) {
+      if (updatedA.length < 6 && updatedB.length < 6) {
+        if (updatedA.length <= updatedB.length) {
+          updatedA.push({ ...player });
+          triggerToast(`"${player.name}" escalado no Time A.`, "success");
+        } else {
+          updatedB.push({ ...player });
+          triggerToast(`"${player.name}" escalado no Time B.`, "success");
+        }
+      } else if (updatedA.length < 6) {
+        updatedA.push({ ...player });
+        triggerToast(`"${player.name}" escalado no Time A.`, "success");
+      } else {
+        updatedB.push({ ...player });
+        triggerToast(`"${player.name}" escalado no Time B.`, "success");
+      }
     } else {
       updatedReserves.push({ ...player });
       triggerToast(`"${player.name}" adicionado à fila de reserva.`, "success");
     }
 
     // Recalculate and reassign hierarchy values
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -443,7 +499,13 @@ export default function App() {
       triggerToast(`"${name}" removido da fila de reservas.`, "success");
     }
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
+    // Reset consecutive wins count upon manual removal of player
+    setConsecutiveWinsCount(0);
+    setConsecutiveWinsTeam(null);
+    setConsecutiveWinsPlayers([]);
+    setDismissedWinsCount(0);
+
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -481,7 +543,14 @@ export default function App() {
       }
     }
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam);
+
+    // Reset consecutive wins count upon player deletion
+    setConsecutiveWinsCount(0);
+    setConsecutiveWinsTeam(null);
+    setConsecutiveWinsPlayers([]);
+    setDismissedWinsCount(0);
+
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -513,6 +582,13 @@ export default function App() {
     triggerToast("Cadastro do jogador atualizado com sucesso!", "success");
   };
 
+  // Toggle lock/unlock manual reordering state for a player
+  const handleToggleLock = (id: string) => {
+    setUnlockedPlayerIds((prev) =>
+      prev.includes(id) ? prev.filter((uid) => uid !== id) : [...prev, id]
+    );
+  };
+
   // Handle game finished and rotation
   const handleGameWinner = (winner: "A" | "B") => {
     if (teamA.length < 6 || teamB.length < 6) {
@@ -528,6 +604,27 @@ export default function App() {
 
     const losingTeam = winner === "A" ? teamB : teamA;
     const winningTeam = winner === "A" ? teamA : teamB;
+
+    // Manage consecutive wins:
+    // Check if the winner team has won previously and with the exact same players
+    const currentWinningPlayerIds = winningTeam.map(p => p.id).sort();
+    const previousStreakPlayerIds = [...consecutiveWinsPlayers].sort();
+    const isSameRoster = 
+      consecutiveWinsTeam === winner &&
+      currentWinningPlayerIds.length === previousStreakPlayerIds.length &&
+      currentWinningPlayerIds.every((id, idx) => id === previousStreakPlayerIds[idx]);
+
+    if (isSameRoster) {
+      setConsecutiveWinsCount(prev => prev + 1);
+    } else {
+      setConsecutiveWinsCount(1);
+      setConsecutiveWinsTeam(winner);
+      setConsecutiveWinsPlayers(winningTeam.map(p => p.id));
+      setDismissedWinsCount(0);
+    }
+
+    // Reset unlocked padlocks when rotation/winner is decided
+    setUnlockedPlayerIds([]);
 
     let newLosingTeam: Player[] = [];
     let newReserves: Player[] = [];
@@ -556,8 +653,9 @@ export default function App() {
     const finalA = winner === "A" ? winningTeam : newLosingTeam;
     const finalB = winner === "B" ? winningTeam : newLosingTeam;
 
-    // Reset hierarchy values
-    const updated = reassignHierarchyValues(finalA, finalB, newReserves);
+    // Reset hierarchy values and set new winner
+    const updated = reassignHierarchyValues(finalA, finalB, newReserves, winner);
+    setWinnerTeam(winner);
 
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
@@ -567,6 +665,71 @@ export default function App() {
       `Fim de jogo! Time ${winner} venceu. O time perdedor foi deslocado para a reserva.`,
       "success"
     );
+  };
+
+  // Handle drag reordering events
+  const handleDragStart = (id: string) => {
+    pushToHistory();
+    setActiveDragId(id);
+  };
+
+  const handleDragEnd = () => {
+    setActiveDragId(null);
+  };
+
+  const handleDragMove = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
+
+    let listType: "A" | "B" | "Res" | null = null;
+    let listData: Player[] = [];
+
+    if (teamA.some((p) => p.id === draggedId)) {
+      listType = "A";
+      listData = [...teamA];
+    } else if (teamB.some((p) => p.id === draggedId)) {
+      listType = "B";
+      listData = [...teamB];
+    } else if (reserves.some((p) => p.id === draggedId)) {
+      listType = "Res";
+      listData = [...reserves];
+    }
+
+    if (!listType) return;
+
+    // Check if target is in the same list
+    const isTargetInSameList =
+      (listType === "A" && teamA.some((p) => p.id === targetId)) ||
+      (listType === "B" && teamB.some((p) => p.id === targetId)) ||
+      (listType === "Res" && reserves.some((p) => p.id === targetId));
+
+    if (!isTargetInSameList) return;
+
+    const draggedIdx = listData.findIndex((p) => p.id === draggedId);
+    const targetIdx = listData.findIndex((p) => p.id === targetId);
+
+    if (draggedIdx === -1 || targetIdx === -1) return;
+
+    // Move item
+    const [movedPlayer] = listData.splice(draggedIdx, 1);
+    listData.splice(targetIdx, 0, movedPlayer);
+
+    // Update the corresponding state and reassign hierarchy values
+    if (listType === "A") {
+      const updated = reassignHierarchyValues(listData, teamB, reserves, winnerTeam);
+      setTeamA(updated.teamA);
+      setTeamB(updated.teamB);
+      setReserves(updated.reserves);
+    } else if (listType === "B") {
+      const updated = reassignHierarchyValues(teamA, listData, reserves, winnerTeam);
+      setTeamA(updated.teamA);
+      setTeamB(updated.teamB);
+      setReserves(updated.reserves);
+    } else {
+      const updated = reassignHierarchyValues(teamA, teamB, listData, winnerTeam);
+      setTeamA(updated.teamA);
+      setTeamB(updated.teamB);
+      setReserves(updated.reserves);
+    }
   };
 
   // Trigger Team Mixing (Embaralhar com equilíbrio)
@@ -583,6 +746,15 @@ export default function App() {
     if (mixed) {
       // Save history before modifying rosters
       pushToHistory();
+
+      // Reset unlocked locks when mixed
+      setUnlockedPlayerIds([]);
+
+      // Reset consecutive win streak when mixed
+      setConsecutiveWinsCount(0);
+      setConsecutiveWinsTeam(null);
+      setConsecutiveWinsPlayers([]);
+      setDismissedWinsCount(0);
 
       setTeamA(mixed.teamA);
       setTeamB(mixed.teamB);
@@ -658,6 +830,14 @@ export default function App() {
   const countTeamAWomen = teamA.filter((p) => p.gender === Gender.FEMALE).length;
   const countTeamBMen = teamB.filter((p) => p.gender === Gender.MALE).length;
   const countTeamBWomen = teamB.filter((p) => p.gender === Gender.FEMALE).length;
+
+  const showGenderImbalanceWarning = teamA.length === 6 && teamB.length === 6 && (
+    Math.abs(countTeamAWomen - countTeamBWomen) >= 2 || Math.abs(countTeamAMen - countTeamBMen) >= 2
+  );
+
+  const currentRosterKey = [...teamA, ...teamB].map((p) => p.id).sort().join(",");
+  const isGenderImbalanceActive = showGenderImbalanceWarning && dismissedGenderImbalanceKey !== currentRosterKey;
+  const isWinsStreakActive = consecutiveWinsCount === 3 && dismissedWinsCount !== 3;
   const styles = themeStyles[theme];
 
   return (
@@ -929,7 +1109,8 @@ export default function App() {
             </div>
 
             {/* Right side teams & reserves */}
-            <div className="lg:col-span-8 space-y-8">
+            <div className="lg:col-span-8 space-y-6">
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Time A Panel */}
@@ -976,6 +1157,14 @@ export default function App() {
                                   setSwappingPlayerId(player.id);
                                 }
                               }}
+                              listType="A"
+                              activeDragId={activeDragId}
+                              setActiveDragId={setActiveDragId}
+                              onDragMove={handleDragMove}
+                              onDragStart={handleDragStart}
+                              onDragEnd={handleDragEnd}
+                              isUnlocked={unlockedPlayerIds.includes(player.id)}
+                              onToggleLock={() => handleToggleLock(player.id)}
                             />
                           ))
                         ) : (
@@ -1048,6 +1237,14 @@ export default function App() {
                                   setSwappingPlayerId(player.id);
                                 }
                               }}
+                              listType="B"
+                              activeDragId={activeDragId}
+                              setActiveDragId={setActiveDragId}
+                              onDragMove={handleDragMove}
+                              onDragStart={handleDragStart}
+                              onDragEnd={handleDragEnd}
+                              isUnlocked={unlockedPlayerIds.includes(player.id)}
+                              onToggleLock={() => handleToggleLock(player.id)}
                             />
                           ))
                         ) : (
@@ -1107,6 +1304,12 @@ export default function App() {
                             accentColor="amber"
                             theme={theme}
                             isReserve
+                            listType="Res"
+                            activeDragId={activeDragId}
+                            setActiveDragId={setActiveDragId}
+                            onDragMove={handleDragMove}
+                            onDragStart={handleDragStart}
+                            onDragEnd={handleDragEnd}
                             isSwappingSelected={swappingPlayerId === player.id}
                             isSwappingModeActive={!!swappingPlayerId}
                             onSwap={() => {
@@ -1120,6 +1323,8 @@ export default function App() {
                                 setSwappingPlayerId(player.id);
                               }
                             }}
+                            isUnlocked={unlockedPlayerIds.includes(player.id)}
+                            onToggleLock={() => handleToggleLock(player.id)}
                           />
                         ))}
                       </AnimatePresence>
@@ -1215,7 +1420,13 @@ export default function App() {
                 </h3>
                 <ul className={`text-xs space-y-2.5 list-disc pl-4 font-normal ${styles.rulesText}`}>
                   <li>
-                    <strong className={styles.rulesStrong}>Hierarquia Fixa:</strong> O Time A recebe valores ímpares (1, 3, 5, 7, 9, 11). O Time B recebe valores pares (2, 4, 6, 8, 10, 12).
+                    <strong className={styles.rulesStrong}>Hierarquia Dinâmica:</strong> O time vencedor da partida anterior sempre recebe as numerações ímpares (1, 3, 5, 7, 9, 11), garantindo prioridade hierárquica na fila. O time perdedor ou rearranjado com a entrada dos reservas recebe as numerações pares (2, 4, 6, 8, 10, 12).
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Entrada Alternada:</strong> Ao escalar novos jogadores, eles preenchem os times ativos alternadamente: o 1º vai para o Time A, o 2º para o Time B, o 3º para o Time A, e assim por diante até completar 12 jogadores. O 13º em diante entra na fila de reserva por ordem de chegada.
+                  </li>
+                  <li>
+                    <strong className={styles.rulesStrong}>Reordenação Manual:</strong> Toque e segure no nome de um jogador (celular) ou arraste (desktop) para movê-lo para cima ou para baixo dentro do próprio time ou da reserva. A lista se renumera automaticamente respeitando a regra de rodízio e vitórias.
                   </li>
                   <li>
                     <strong className={styles.rulesStrong}>Cadastro Reserva:</strong> Jogadores excedentes recebem numerações sequenciais a partir de 13.
@@ -1609,6 +1820,138 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* WARNING POPUP DIALOGS (Gender Imbalance & Wins Streak) */}
+      <AnimatePresence>
+        {(isGenderImbalanceActive || isWinsStreakActive) && (
+          <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              transition={{ type: "spring", damping: 25, stiffness: 350 }}
+              className={`rounded-3xl shadow-2xl max-w-lg w-full p-6 border transition-all duration-200 relative overflow-hidden ${styles.cardBg} ${styles.border}`}
+            >
+              {/* Top ambient color accent background */}
+              <div className={`absolute top-0 left-0 right-0 h-2 ${
+                isGenderImbalanceActive 
+                  ? "bg-amber-500" 
+                  : "bg-violet-600"
+              }`} />
+
+              {isGenderImbalanceActive ? (
+                /* Gender Imbalance Alert Content */
+                <div>
+                  <div className="flex items-center gap-3.5 mb-4 text-amber-500">
+                    <div className="p-2.5 bg-amber-500/10 rounded-2xl">
+                      <AlertCircle className="w-7 h-7 animate-pulse" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold tracking-wider uppercase opacity-60">
+                        Equilíbrio de Gênero
+                      </span>
+                      <h3 className={`font-display font-black text-xl leading-none mt-0.5 ${styles.textBold}`}>
+                        Desequilíbrio de Times
+                      </h3>
+                    </div>
+                  </div>
+
+                  <p className={`text-sm leading-relaxed mb-6 ${styles.textMuted}`}>
+                    O <strong>Time A</strong> possui <span className="font-bold">{countTeamAWomen} mulheres</span> e <span className="font-bold">{countTeamAMen} homens</span>, enquanto o <strong>Time B</strong> possui <span className="font-bold">{countTeamBWomen} mulheres</span> e <span className="font-bold">{countTeamBMen} homens</span>.
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                    <button
+                      type="button"
+                      className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                        theme === "escuro"
+                          ? "border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-850"
+                          : theme === "pastel"
+                          ? "border-[#DCD0C0] bg-[#FAF5ED] text-[#8C6D3C] hover:bg-[#FAF5ED]/80"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                      onClick={() => setDismissedGenderImbalanceKey(currentRosterKey)}
+                    >
+                      Manter Times Como Estão
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        theme === "escuro"
+                          ? "bg-violet-600 hover:bg-violet-750"
+                          : theme === "pastel"
+                          ? "bg-[#8A6F53] hover:bg-[#775F46]"
+                          : "bg-indigo-600 hover:bg-indigo-750"
+                      }`}
+                      onClick={() => {
+                        handleMix();
+                        setDismissedGenderImbalanceKey(currentRosterKey);
+                      }}
+                    >
+                      <Shuffle className="w-4 h-4" />
+                      Misturar e Balancear Times
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Wins Streak Alert Content */
+                <div>
+                  <div className="flex items-center gap-3.5 mb-4 text-violet-500">
+                    <div className="p-2.5 bg-violet-500/10 rounded-2xl">
+                      <Trophy className="w-7 h-7 animate-bounce" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold tracking-wider uppercase opacity-60">
+                        Domínio da Arena
+                      </span>
+                      <h3 className={`font-display font-black text-xl leading-none mt-0.5 ${styles.textBold}`}>
+                        Sequência Imparável!
+                      </h3>
+                    </div>
+                  </div>
+
+                  <p className={`text-sm leading-relaxed mb-6 ${styles.textMuted}`}>
+                    O <strong>Time {consecutiveWinsTeam}</strong> venceu 3 partidas seguidas!
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                    <button
+                      type="button"
+                      className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                        theme === "escuro"
+                          ? "border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-850"
+                          : theme === "pastel"
+                          ? "border-[#DCD0C0] bg-[#FAF5ED] text-[#8C6D3C] hover:bg-[#FAF5ED]/80"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                      onClick={() => setDismissedWinsCount(consecutiveWinsCount)}
+                    >
+                      Manter Sequência e Jogar
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                        theme === "escuro"
+                          ? "bg-violet-600 hover:bg-violet-750"
+                          : theme === "pastel"
+                          ? "bg-[#8A6F53] hover:bg-[#775F46]"
+                          : "bg-indigo-600 hover:bg-indigo-750"
+                      }`}
+                      onClick={() => {
+                        handleMix();
+                        setDismissedWinsCount(consecutiveWinsCount);
+                      }}
+                    >
+                      <Shuffle className="w-4 h-4" />
+                      Misturar e Balancear Times
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* TOAST NOTIFICATION CONTAINER */}
       <div className="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none max-w-sm w-full">
         <AnimatePresence>
@@ -1665,6 +2008,18 @@ interface PlayerCardProps {
   isSwappingSelected?: boolean;
   isSwappingModeActive?: boolean;
   theme?: "claro" | "escuro" | "pastel";
+
+  // Drag props
+  listType: "A" | "B" | "Res";
+  activeDragId: string | null;
+  setActiveDragId: (id: string | null) => void;
+  onDragMove: (draggedId: string, targetId: string) => void;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+
+  // Lock props
+  isUnlocked: boolean;
+  onToggleLock: () => void;
 }
 
 function PlayerCard({
@@ -1678,8 +2033,64 @@ function PlayerCard({
   isSwappingSelected = false,
   isSwappingModeActive = false,
   theme = "claro",
+  listType,
+  activeDragId,
+  setActiveDragId,
+  onDragMove,
+  onDragStart,
+  onDragEnd,
+  isUnlocked,
+  onToggleLock,
 }: PlayerCardProps) {
   const isMale = player.gender === Gender.MALE;
+  const touchTimeoutRef = React.useRef<any>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+    };
+  }, []);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!isUnlocked) return; // Disallow manual reordering if locked
+    const target = e.target as HTMLElement;
+    if (target.closest("button")) return;
+
+    if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+    touchTimeoutRef.current = setTimeout(() => {
+      onDragStart(player.id);
+    }, 150);
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimeoutRef.current) {
+      clearTimeout(touchTimeoutRef.current);
+      touchTimeoutRef.current = null;
+    }
+    if (activeDragId === player.id) {
+      onDragEnd();
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (activeDragId !== player.id) return;
+
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+
+    const touch = e.touches[0];
+    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!element) return;
+    const card = element.closest("[data-player-id]");
+    if (card) {
+      const targetId = card.getAttribute("data-player-id");
+      const targetList = card.getAttribute("data-list-type");
+      if (targetId && targetId !== player.id && targetList === listType) {
+        onDragMove(player.id, targetId);
+      }
+    }
+  };
 
   const cardStyles = {
     claro: {
@@ -1738,9 +2149,50 @@ function PlayerCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
-      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${curCard.bg}`}
+      className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${curCard.bg} ${
+        player.id === activeDragId
+          ? "scale-[1.02] border-amber-400 dark:border-amber-500 shadow-md ring-2 ring-amber-450/20 bg-slate-50 dark:bg-slate-850"
+          : "hover:border-slate-300/80 dark:hover:border-slate-700"
+      }`}
+      draggable={isUnlocked}
+      data-player-id={player.id}
+      data-list-type={listType}
+      onDragStart={(e) => {
+        if (!isUnlocked) {
+          e.preventDefault();
+          return;
+        }
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", player.id);
+        onDragStart(player.id);
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (isUnlocked && activeDragId && activeDragId !== player.id) {
+          onDragMove(activeDragId, player.id);
+        }
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
     >
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-2.5 min-w-0">
+        {/* Drag vertical grip handle */}
+        <div 
+          className={`shrink-0 select-none ${
+            !isUnlocked 
+              ? "text-slate-200 dark:text-slate-800 opacity-45 cursor-not-allowed pointer-events-none" 
+              : player.id === activeDragId 
+              ? "text-amber-500 dark:text-amber-400 animate-pulse cursor-grab active:cursor-grabbing" 
+              : "text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 cursor-grab active:cursor-grabbing"
+          }`}
+          title={isUnlocked ? "Toque e segure para reordenar" : "Cadeado trancado: clique no cadeado ao lado do nome para liberar a movimentação"}
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+
         {/* Hierarchy Number Badge */}
         <span
           className={`font-mono text-xs font-bold px-2 py-1 rounded-lg shrink-0 min-w-[28px] text-center ${curCard.badgeHierarchy}`}
@@ -1750,9 +2202,23 @@ function PlayerCard({
         </span>
 
         <div className="min-w-0">
-          <p className={`font-semibold text-sm truncate leading-snug ${curCard.text}`}>
-            {player.name}
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className={`font-semibold text-sm truncate leading-snug ${curCard.text}`}>
+              {player.name}
+            </p>
+            <button
+              type="button"
+              onClick={onToggleLock}
+              title={isUnlocked ? "Trancar posição" : "Destrancar posição para reordenar manual"}
+              className={`p-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                isUnlocked
+                  ? "text-amber-500 hover:text-amber-600 bg-amber-500/10"
+                  : "text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              {isUnlocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+            </button>
+          </div>
           <span
             className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md mt-0.5 ${
               isMale ? curCard.badgeMale : curCard.badgeFemale

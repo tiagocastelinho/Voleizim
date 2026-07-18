@@ -17,23 +17,24 @@ export interface Player {
 
 /**
  * Reassigns the hierarchy numbers based on current order inside each team and reserves.
- * Team A gets 1, 3, 5, 7, 9, 11
- * Team B gets 2, 4, 6, 8, 10, 12
+ * The winning team gets odd numbers (1, 3, 5, 7, 9, 11)
+ * The losing/rearranged team gets even numbers (2, 4, 6, 8, 10, 12)
  * Reserves get 13, 14, 15...
  */
 export function reassignHierarchyValues(
   teamA: Player[],
   teamB: Player[],
-  reserves: Player[]
+  reserves: Player[],
+  winnerTeam: "A" | "B" = "A"
 ): { teamA: Player[]; teamB: Player[]; reserves: Player[] } {
   const newTeamA = teamA.map((p, index) => ({
     ...p,
-    hierarchyValue: 1 + index * 2,
+    hierarchyValue: (winnerTeam === "A" ? 1 : 2) + index * 2,
   }));
 
   const newTeamB = teamB.map((p, index) => ({
     ...p,
-    hierarchyValue: 2 + index * 2,
+    hierarchyValue: (winnerTeam === "B" ? 1 : 2) + index * 2,
   }));
 
   const newReserves = reserves.map((p, index) => ({
