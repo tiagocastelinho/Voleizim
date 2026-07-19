@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Plus,
@@ -31,7 +31,14 @@ import {
   GripVertical,
   Lock,
   Unlock,
+  Cloud,
+  CloudOff,
+  Copy,
+  ExternalLink,
+  Wifi,
 } from "lucide-react";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "./lib/firebase";
 import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
 
 // Design Palette configurations for Claro, Escuro, and Pastel themes
@@ -141,6 +148,23 @@ const themeStyles = {
 };
 
 export default function App() {
+  // Online Synchronization state and refs
+  const [roomCode, setRoomCode] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlRoom = params.get("sala");
+    if (urlRoom) {
+      localStorage.setItem("rodizio_roomCode", urlRoom);
+      return urlRoom;
+    }
+    return localStorage.getItem("rodizio_roomCode") || "padrao";
+  });
+  const [syncStatus, setSyncStatus] = useState<"connecting" | "synced" | "error" | "syncing">("connecting");
+  const [showRoomModal, setShowRoomModal] = useState<boolean>(false);
+  const [tempRoomCode, setTempRoomCode] = useState<string>("");
+
+  const isApplyingSnapshotRef = useRef(false);
+  const lastServerDataRef = useRef<string>("");
+
   // State for Teams and Reserves
   const [teamA, setTeamA] = useState<Player[]>([]);
   const [teamB, setTeamB] = useState<Player[]>([]);
@@ -257,6 +281,157 @@ export default function App() {
     localStorage.setItem("rodizio_consecutiveWinsPlayers", JSON.stringify(consecutiveWinsPlayers));
     localStorage.setItem("rodizio_dismissedWinsCount", dismissedWinsCount.toString());
   }, [consecutiveWinsCount, consecutiveWinsTeam, consecutiveWinsPlayers, dismissedWinsCount]);
+
+  // Synchronize roomCode to localStorage and browser URL
+  useEffect(() => {
+    localStorage.setItem("rodizio_roomCode", roomCode);
+    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + "?sala=" + encodeURIComponent(roomCode);
+    window.history.replaceState({ path: newUrl }, "", newUrl);
+  }, [roomCode]);
+
+  // Load and subscribe to Firestore room state
+  useEffect(() => {
+    setSyncStatus("connecting");
+    const docRef = doc(db, "rooms", roomCode);
+
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        
+        // Deep compare or serialize check to avoid resetting state if it's identical
+        const incomingSerialized = JSON.stringify({
+          teamA: data.teamA || [],
+          teamB: data.teamB || [],
+          reserves: data.reserves || [],
+          registeredPlayers: data.registeredPlayers || [],
+          winnerTeam: data.winnerTeam || "A",
+          consecutiveWinsCount: data.consecutiveWinsCount || 0,
+          consecutiveWinsTeam: data.consecutiveWinsTeam || null,
+          consecutiveWinsPlayers: data.consecutiveWinsPlayers || [],
+          dismissedWinsCount: data.dismissedWinsCount || 0,
+          dismissedGenderImbalanceKey: data.dismissedGenderImbalanceKey || "",
+          theme: data.theme || "claro",
+          unlockedPlayerIds: data.unlockedPlayerIds || [],
+        });
+
+        if (incomingSerialized !== lastServerDataRef.current) {
+          isApplyingSnapshotRef.current = true;
+          
+          if (data.teamA !== undefined) setTeamA(data.teamA);
+          if (data.teamB !== undefined) setTeamB(data.teamB);
+          if (data.reserves !== undefined) setReserves(data.reserves);
+          if (data.registeredPlayers !== undefined) setRegisteredPlayers(data.registeredPlayers);
+          if (data.winnerTeam !== undefined) setWinnerTeam(data.winnerTeam);
+          if (data.consecutiveWinsCount !== undefined) setConsecutiveWinsCount(data.consecutiveWinsCount);
+          if (data.consecutiveWinsTeam !== undefined) setConsecutiveWinsTeam(data.consecutiveWinsTeam);
+          if (data.consecutiveWinsPlayers !== undefined) setConsecutiveWinsPlayers(data.consecutiveWinsPlayers);
+          if (data.dismissedWinsCount !== undefined) setDismissedWinsCount(data.dismissedWinsCount);
+          if (data.dismissedGenderImbalanceKey !== undefined) setDismissedGenderImbalanceKey(data.dismissedGenderImbalanceKey);
+          if (data.theme !== undefined) setTheme(data.theme);
+          if (data.unlockedPlayerIds !== undefined) setUnlockedPlayerIds(data.unlockedPlayerIds);
+          
+          lastServerDataRef.current = incomingSerialized;
+          
+          setTimeout(() => {
+            isApplyingSnapshotRef.current = false;
+          }, 50);
+        }
+        setSyncStatus("synced");
+      } else {
+        // If room document doesn't exist yet, we initialize it with our current local state!
+        const localState = {
+          teamA,
+          teamB,
+          reserves,
+          registeredPlayers,
+          winnerTeam,
+          consecutiveWinsCount,
+          consecutiveWinsTeam,
+          consecutiveWinsPlayers,
+          dismissedWinsCount,
+          dismissedGenderImbalanceKey,
+          theme,
+          unlockedPlayerIds,
+        };
+        const serialized = JSON.stringify(localState);
+        lastServerDataRef.current = serialized;
+        
+        setDoc(docRef, {
+          ...localState,
+          updatedAt: serverTimestamp()
+        })
+          .then(() => {
+            setSyncStatus("synced");
+          })
+          .catch((err) => {
+            console.error("Erro ao inicializar sala no Firestore:", err);
+            setSyncStatus("error");
+          });
+      }
+    }, (error) => {
+      console.error("Erro no listener do Firestore:", error);
+      setSyncStatus("error");
+    });
+
+    return () => unsubscribe();
+  }, [roomCode]);
+
+  // Synchronize local state updates back to Firestore
+  useEffect(() => {
+    if (isApplyingSnapshotRef.current) return;
+
+    const localState = {
+      teamA,
+      teamB,
+      reserves,
+      registeredPlayers,
+      winnerTeam,
+      consecutiveWinsCount,
+      consecutiveWinsTeam,
+      consecutiveWinsPlayers,
+      dismissedWinsCount,
+      dismissedGenderImbalanceKey,
+      theme,
+      unlockedPlayerIds,
+    };
+
+    const serialized = JSON.stringify(localState);
+    if (serialized === lastServerDataRef.current) return;
+
+    setSyncStatus("syncing");
+    const docRef = doc(db, "rooms", roomCode);
+    
+    const timeoutId = setTimeout(() => {
+      setDoc(docRef, {
+        ...localState,
+        updatedAt: serverTimestamp()
+      }, { merge: true })
+        .then(() => {
+          lastServerDataRef.current = serialized;
+          setSyncStatus("synced");
+        })
+        .catch((err) => {
+          console.error("Erro ao salvar no Firestore:", err);
+          setSyncStatus("error");
+        });
+    }, 400); // Small debounce to handle continuous dragging operations smoothly
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    teamA,
+    teamB,
+    reserves,
+    registeredPlayers,
+    winnerTeam,
+    consecutiveWinsCount,
+    consecutiveWinsTeam,
+    consecutiveWinsPlayers,
+    dismissedWinsCount,
+    dismissedGenderImbalanceKey,
+    theme,
+    unlockedPlayerIds,
+    roomCode
+  ]);
 
   // Auto-clear notification after delay
   useEffect(() => {
@@ -859,7 +1034,68 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap md:flex-nowrap justify-end">
+            {/* Online Sync Indicator & Room Button */}
+            <button
+              id="btn-sync-online"
+              onClick={() => {
+                setTempRoomCode(roomCode);
+                setShowRoomModal(true);
+              }}
+              className={`flex items-center gap-2 text-xs font-bold px-3 py-2.5 rounded-xl border transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
+                syncStatus === "synced"
+                  ? theme === "escuro"
+                    ? "bg-emerald-950/25 border-emerald-900/60 text-emerald-400 hover:bg-emerald-950/40"
+                    : theme === "pastel"
+                    ? "bg-[#EBF7EE] border-[#B7D2BF] text-[#2D5A27] hover:bg-[#D9EFE0]"
+                    : "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100/50"
+                  : syncStatus === "syncing"
+                  ? theme === "escuro"
+                    ? "bg-amber-950/25 border-amber-900/60 text-amber-400 hover:bg-amber-950/40"
+                    : theme === "pastel"
+                    ? "bg-[#FFF9E6] border-[#E8D490] text-[#7C5A0B] hover:bg-[#FDF1CC]"
+                    : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100/50 animate-pulse"
+                  : syncStatus === "connecting"
+                  ? theme === "escuro"
+                    ? "bg-slate-900 border-slate-800 text-slate-400"
+                    : theme === "pastel"
+                    ? "bg-[#F3ECE0] border-[#D6C4AD] text-[#635541]"
+                    : "bg-slate-50 border-slate-200 text-slate-500"
+                  : // error
+                    theme === "escuro"
+                    ? "bg-rose-950/25 border-rose-900/60 text-rose-400 hover:bg-rose-950/40"
+                    : theme === "pastel"
+                    ? "bg-[#FCECE8] border-[#DFB6AB] text-[#6D2E1F] hover:bg-[#FADBD2]"
+                    : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100/50"
+              }`}
+              title="Sincronização Online e Código de Sala"
+            >
+              {syncStatus === "synced" ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <Cloud className="w-4 h-4" />
+                </>
+              ) : syncStatus === "syncing" ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                  <Cloud className="w-4 h-4" />
+                </>
+              ) : syncStatus === "connecting" ? (
+                <Wifi className="w-4 h-4 animate-pulse text-slate-400" />
+              ) : (
+                <CloudOff className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">Sala:</span>
+              <span className="font-mono text-xs opacity-90 max-w-[80px] truncate">
+                {roomCode}
+              </span>
+            </button>
             {/* Quick Stats Banner */}
             <div className={`flex flex-wrap items-center gap-4 text-xs font-semibold p-2.5 rounded-xl border transition-colors duration-200 ${
               theme === "escuro" 
@@ -1947,6 +2183,199 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+
+        {/* ONLINE ROOM MANAGEMENT MODAL */}
+        {showRoomModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-xs"
+              onClick={() => setShowRoomModal(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.4, bounce: 0.15 }}
+              className={`relative w-full max-w-md rounded-3xl p-6 shadow-2xl border z-50 overflow-hidden ${styles.cardBg}`}
+            >
+              <button
+                type="button"
+                onClick={() => setShowRoomModal(false)}
+                className={`absolute top-4 right-4 p-2 rounded-xl border transition-colors cursor-pointer ${
+                  theme === "escuro"
+                    ? "bg-slate-900 border-slate-850 hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                    : theme === "pastel"
+                    ? "bg-[#FCFAF5] border-[#DCD0C0] hover:bg-[#F3EBE0] text-[#8C6D3C]"
+                    : "bg-white border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-3.5 mb-5 text-indigo-500 dark:text-violet-400">
+                <div className="p-2.5 bg-indigo-500/10 dark:bg-violet-500/10 rounded-2xl">
+                  <Cloud className="w-7 h-7" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold tracking-wider uppercase opacity-60">
+                    Sincronização Online
+                  </span>
+                  <h3 className={`font-display font-black text-xl leading-none mt-0.5 ${styles.textBold}`}>
+                    Conectar em Tempo Real
+                  </h3>
+                </div>
+              </div>
+
+              <p className={`text-xs leading-relaxed mb-5 ${styles.textMuted}`}>
+                Sua lista de jogadores e escalações são salvas automaticamente online. Digite um código de sala para compartilhar com outros dispositivos, ou crie um novo código para jogar em particular com seus amigos!
+              </p>
+
+              {/* Current Room Code and Share info */}
+              <div className={`p-4 rounded-2xl mb-5 flex flex-col gap-2.5 ${
+                theme === "escuro" 
+                  ? "bg-slate-900/60 border border-slate-800" 
+                  : theme === "pastel" 
+                  ? "bg-[#FAF5ED] border border-[#DCD0C0]" 
+                  : "bg-slate-50 border border-slate-100"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                    Sala Ativa:
+                  </span>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${
+                    syncStatus === "synced" ? "text-emerald-500" : syncStatus === "syncing" ? "text-amber-500" : "text-rose-500"
+                  }`}>
+                    {syncStatus === "synced" ? (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Sincronizado
+                      </>
+                    ) : syncStatus === "syncing" ? (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                        Salvando...
+                      </>
+                    ) : (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                        Erro / Off-line
+                      </>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 bg-white dark:bg-slate-950 p-2.5 rounded-xl border border-slate-100 dark:border-slate-850">
+                  <span className={`font-mono font-extrabold text-sm tracking-wider select-all ${styles.textBold}`}>
+                    {roomCode}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const shareUrl = window.location.origin + window.location.pathname + "?sala=" + encodeURIComponent(roomCode);
+                      navigator.clipboard.writeText(shareUrl)
+                        .then(() => {
+                          triggerToast("Link de compartilhamento copiado!", "success");
+                        })
+                        .catch(() => {
+                          triggerToast("Erro ao copiar link.", "error");
+                        });
+                    }}
+                    className={`p-1.5 rounded-lg border flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-colors ${
+                      theme === "escuro"
+                        ? "bg-slate-900 border-slate-850 hover:bg-slate-800 text-slate-300"
+                        : theme === "pastel"
+                        ? "bg-[#FCFAF5] border-[#DCD0C0] hover:bg-[#F3EBE0] text-[#8C6D3C]"
+                        : "bg-white border-slate-200 hover:bg-slate-50 text-slate-600"
+                    }`}
+                    title="Copiar link de compartilhamento"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copiar Link</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Change Room Code Form */}
+              <div className="space-y-3.5">
+                <div>
+                  <label className={`block text-[10px] font-extrabold uppercase tracking-wider mb-1.5 ${styles.textBold}`}>
+                    Entrar em Outra Sala
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Ex: futebol-quarta"
+                      value={tempRoomCode}
+                      onChange={(e) => setTempRoomCode(e.target.value.trim().toLowerCase().replace(/[^a-z0-9-_]/g, ""))}
+                      maxLength={20}
+                      className={`flex-1 py-2 px-3.5 rounded-xl text-xs font-semibold border focus:outline-hidden transition-all ${
+                        theme === "escuro"
+                          ? "bg-slate-950 border-slate-800 text-slate-200 focus:border-violet-500"
+                          : theme === "pastel"
+                          ? "bg-[#FCFAF5] border-[#DCD0C0] text-[#3D2F20] focus:border-[#8A6F53]"
+                          : "bg-white border-slate-250 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const randomCode = Math.random().toString(36).substring(2, 8).toLowerCase();
+                        setTempRoomCode(randomCode);
+                      }}
+                      className={`px-3 py-2 rounded-xl border text-[11px] font-extrabold transition-colors cursor-pointer ${
+                        theme === "escuro"
+                          ? "bg-slate-900 border-slate-800 hover:bg-slate-850 text-slate-300"
+                          : theme === "pastel"
+                          ? "bg-[#FCFAF5] border-[#DCD0C0] hover:bg-[#F3EBE0] text-[#8C6D3C]"
+                          : "bg-white border-slate-200 hover:bg-slate-50 text-slate-600"
+                      }`}
+                      title="Gerar código de sala aleatório"
+                    >
+                      Aleatório
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowRoomModal(false)}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                      theme === "escuro"
+                        ? "border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-850"
+                        : theme === "pastel"
+                        ? "border-[#DCD0C0] bg-[#FAF5ED] text-[#8C6D3C] hover:bg-[#FAF5ED]/80"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!tempRoomCode || tempRoomCode === roomCode}
+                    onClick={() => {
+                      if (tempRoomCode) {
+                        setRoomCode(tempRoomCode);
+                        setShowRoomModal(false);
+                        triggerToast(`Conectando à sala: ${tempRoomCode}`, "info");
+                      }
+                    }}
+                    className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none ${
+                      theme === "escuro"
+                        ? "bg-violet-600 hover:bg-violet-750"
+                        : theme === "pastel"
+                        ? "bg-[#8A6F53] hover:bg-[#775F46]"
+                        : "bg-indigo-600 hover:bg-indigo-750"
+                    }`}
+                  >
+                    Entrar na Sala
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

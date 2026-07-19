@@ -1,0 +1,25 @@
+{
+  "collections": {
+    "rooms": {
+      "schema": {
+        "teamA": "array",
+        "teamB": "array",
+        "reserves": "array",
+        "registeredPlayers": "array",
+        "winnerTeam": "string",
+        "consecutiveWinsCount": "number",
+        "consecutiveWinsTeam": "string",
+        "consecutiveWinsPlayers": "array",
+        "dismissedWinsCount": "number",
+        "dismissedGenderImbalanceKey": "string",
+        "unlockedPlayerIds": "array",
+        "theme": "string",
+        "updatedAt": "timestamp"
+      },
+      "rules": {
+        "read": "true",
+        "write": "true"
+      }
+    }
+  }
+}
