@@ -1585,74 +1585,210 @@ export default function App() {
           </div>
         ) : (
           /* Cadastro Tab view */
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Left column: Add form & rules */}
-            <div className="lg:col-span-4 space-y-6">
-              
-              {/* Section: Cadastrar Jogador */}
-              <div className={`rounded-2xl border p-6 transition-all duration-200 ${styles.cardBg} ${styles.border}`}>
-                <h3 className={`font-display font-semibold text-sm ${styles.cardTitle} mb-4 flex items-center gap-2`}>
-                  <Plus className="w-4 h-4 text-indigo-600" />
-                  Novo Jogador
-                </h3>
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Left column: Add form */}
+              <div className="lg:col-span-4 space-y-6">
                 
-                <form onSubmit={handleAddPlayer} className="space-y-4">
-                  <div>
-                    <label htmlFor="playerName" className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
-                      Nome do Jogador
-                    </label>
+                {/* Section: Cadastrar Jogador */}
+                <div className={`rounded-2xl border p-6 transition-all duration-200 ${styles.cardBg} ${styles.border}`}>
+                  <h3 className={`font-display font-semibold text-sm ${styles.cardTitle} mb-4 flex items-center gap-2`}>
+                    <Plus className="w-4 h-4 text-indigo-600" />
+                    Novo Jogador
+                  </h3>
+                  
+                  <form onSubmit={handleAddPlayer} className="space-y-4">
+                    <div>
+                      <label htmlFor="playerName" className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
+                        Nome do Jogador
+                      </label>
+                      <input
+                        id="playerName"
+                        type="text"
+                        placeholder="Ex: Carlos Silva"
+                        className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${styles.inputBg}`}
+                        value={newPlayerName}
+                        onChange={(e) => setNewPlayerName(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <span className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
+                        Sexo / Gênero
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            newPlayerGender === Gender.MALE
+                              ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs dark:bg-indigo-950/40 dark:border-indigo-850 dark:text-indigo-300"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850"
+                          }`}
+                          onClick={() => setNewPlayerGender(Gender.MALE)}
+                        >
+                          <User className="w-3.5 h-3.5 text-indigo-500" />
+                          Masculino
+                        </button>
+                        <button
+                          type="button"
+                          className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            newPlayerGender === Gender.FEMALE
+                              ? "bg-rose-50 border-rose-200 text-rose-700 shadow-xs dark:bg-rose-950/40 dark:border-rose-850 dark:text-rose-300"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850"
+                          }`}
+                          onClick={() => setNewPlayerGender(Gender.FEMALE)}
+                        >
+                          <User className="w-3.5 h-3.5 text-rose-500" />
+                          Feminino
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 font-bold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Cadastrar Jogador
+                    </button>
+                  </form>
+                </div>
+
+              </div>
+
+              {/* Right column: Master Registered alphabetical list */}
+              <div className="lg:col-span-8 space-y-6">
+                
+                <div className={`rounded-2xl border p-6 shadow-xs space-y-4 ${styles.cardBg} ${styles.border}`}>
+                  <div className="flex items-center justify-between pb-1">
+                    <h3 className={`font-display font-semibold text-sm ${styles.cardTitle} flex items-center gap-2`}>
+                      <Users className="w-4 h-4 text-emerald-500" />
+                      Jogadores Cadastrados
+                    </h3>
+                    <span className={`text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 px-2 py-0.5 rounded-md font-bold uppercase`}>
+                      A-Z ({registeredPlayers.length})
+                    </span>
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                     <input
-                      id="playerName"
                       type="text"
-                      placeholder="Ex: Carlos Silva"
-                      className={`w-full px-3.5 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${styles.inputBg}`}
-                      value={newPlayerName}
-                      onChange={(e) => setNewPlayerName(e.target.value)}
+                      placeholder="Buscar por nome..."
+                      className={`w-full pl-9 pr-3.5 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${styles.inputBg}`}
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                     />
                   </div>
 
-                  <div>
-                    <span className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
-                      Sexo / Gênero
-                    </span>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                          newPlayerGender === Gender.MALE
-                            ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs dark:bg-indigo-950/40 dark:border-indigo-850 dark:text-indigo-300"
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850"
-                        }`}
-                        onClick={() => setNewPlayerGender(Gender.MALE)}
-                      >
-                        <User className="w-3.5 h-3.5 text-indigo-500" />
-                        Masculino
-                      </button>
-                      <button
-                        type="button"
-                        className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                          newPlayerGender === Gender.FEMALE
-                            ? "bg-rose-50 border-rose-200 text-rose-700 shadow-xs dark:bg-rose-950/40 dark:border-rose-850 dark:text-rose-300"
-                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850"
-                        }`}
-                        onClick={() => setNewPlayerGender(Gender.FEMALE)}
-                      >
-                        <User className="w-3.5 h-3.5 text-rose-500" />
-                        Feminino
-                      </button>
-                    </div>
+                  {/* Master list */}
+                  <div className="space-y-2.5">
+                    {registeredPlayers.length > 0 ? (
+                      (() => {
+                        const filtered = registeredPlayers.filter((p) =>
+                          p.name.toLowerCase().includes(searchQuery.toLowerCase())
+                        );
+
+                        if (filtered.length === 0) {
+                          return (
+                            <p className={`text-center text-xs ${styles.textMuted} py-6`}>
+                              Nenhum jogador encontrado para "{searchQuery}".
+                            </p>
+                          );
+                        }
+
+                        return filtered.map((player) => {
+                          const isInA = teamA.some((p) => p.id === player.id);
+                          const isInB = teamB.some((p) => p.id === player.id);
+                          const isInRes = reserves.some((p) => p.id === player.id);
+                          const isEscalado = isInA || isInB || isInRes;
+
+                          return (
+                            <div
+                              key={player.id}
+                              className={`p-2.5 rounded-xl border flex items-center justify-between transition-all ${
+                                isEscalado
+                                  ? "bg-indigo-50/20 border-indigo-100/50 dark:bg-violet-950/10 dark:border-violet-900/30"
+                                  : "bg-slate-50/50 border-slate-100 hover:bg-slate-50 hover:border-slate-200 dark:bg-slate-900/40 dark:border-slate-850 dark:hover:bg-slate-900"
+                              }`}
+                            >
+                              <div className="min-w-0 flex items-center gap-2">
+                                <span
+                                  className={`p-1.5 rounded-lg shrink-0 ${
+                                    player.gender === Gender.MALE
+                                      ? "bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-400"
+                                      : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
+                                  }`}
+                                >
+                                  <User className="w-3.5 h-3.5" />
+                                </span>
+                                <div className="min-w-0">
+                                  <p className={`text-xs font-bold truncate leading-snug ${styles.textBold}`}>
+                                    {player.name}
+                                  </p>
+                                  {isEscalado && (
+                                    <span className="text-[9px] font-semibold text-indigo-600 dark:text-violet-400 flex items-center gap-1 mt-0.5 animate-pulse">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-violet-500"></span>
+                                      {isInA ? "No Time A" : isInB ? "No Time B" : "Na Reserva"}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0 ml-1">
+                                {/* Add to play button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddToActive(player)}
+                                  disabled={isEscalado}
+                                  className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                    isEscalado
+                                      ? "text-slate-300 bg-slate-100 dark:text-slate-700 dark:bg-slate-800/40 cursor-not-allowed"
+                                      : "text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-violet-400 dark:bg-violet-950/40 dark:hover:bg-violet-950/80"
+                                  }`}
+                                >
+                                  <Plus className="w-3.5 h-3.5 font-bold" />
+                                </button>
+                                {/* Edit button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingPlayer(player)}
+                                  className={`p-1.5 text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer`}
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                {/* Permanent delete button */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDefinitiveDelete(player.id, player.name)}
+                                  className={`p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()
+                    ) : (
+                      <div className="text-center py-8 text-slate-400">
+                        <User className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
+                        <p className="text-xs font-semibold">Nenhum jogador cadastrado.</p>
+                        <p className="text-[10px] text-slate-400 max-w-[200px] mx-auto mt-1 leading-relaxed">
+                          Cadastre acima os jogadores que participam dos seus encontros e rodízios.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  <button
-                    type="submit"
-                    className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 font-bold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Cadastrar Jogador
-                  </button>
-                </form>
-              </div>
+                </div>
 
+              </div>
+            </div>
+
+            {/* Bottom Section: Rules & Dangerous Actions below all registered players */}
+            <div className="space-y-6">
               {/* Rules Help Card inside Cadastro tab */}
               <div className={`rounded-2xl p-6 shadow-md space-y-3.5 ${styles.rulesBg}`}>
                 <h3 className={`font-display font-semibold text-sm flex items-center gap-2 ${styles.rulesTitle}`}>
@@ -1684,7 +1820,7 @@ export default function App() {
                 </ul>
               </div>
 
-              {/* Limpar Tudo dangerous action at the bottom of left column, under the rules */}
+              {/* Limpar Tudo dangerous action at the bottom */}
               {registeredPlayers.length > 0 && (
                 <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex items-center justify-between`}>
                   <div className="space-y-0.5">
@@ -1700,137 +1836,6 @@ export default function App() {
                   </button>
                 </div>
               )}
-
-            </div>
-
-            {/* Right column: Master Registered alphabetical list */}
-            <div className="lg:col-span-8 space-y-6">
-              
-              <div className={`rounded-2xl border p-6 shadow-xs space-y-4 ${styles.cardBg} ${styles.border}`}>
-                <div className="flex items-center justify-between pb-1">
-                  <h3 className={`font-display font-semibold text-sm ${styles.cardTitle} flex items-center gap-2`}>
-                    <Users className="w-4 h-4 text-emerald-500" />
-                    Jogadores Cadastrados
-                  </h3>
-                  <span className={`text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 px-2 py-0.5 rounded-md font-bold uppercase`}>
-                    A-Z ({registeredPlayers.length})
-                  </span>
-                </div>
-
-                {/* Search Input */}
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Buscar por nome..."
-                    className={`w-full pl-9 pr-3.5 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${styles.inputBg}`}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-
-                {/* Master list */}
-                <div className="max-h-[500px] overflow-y-auto pr-1 space-y-2.5 custom-scrollbar">
-                  {registeredPlayers.length > 0 ? (
-                    (() => {
-                      const filtered = registeredPlayers.filter((p) =>
-                        p.name.toLowerCase().includes(searchQuery.toLowerCase())
-                      );
-
-                      if (filtered.length === 0) {
-                        return (
-                          <p className={`text-center text-xs ${styles.textMuted} py-6`}>
-                            Nenhum jogador encontrado para "{searchQuery}".
-                          </p>
-                        );
-                      }
-
-                      return filtered.map((player) => {
-                        const isInA = teamA.some((p) => p.id === player.id);
-                        const isInB = teamB.some((p) => p.id === player.id);
-                        const isInRes = reserves.some((p) => p.id === player.id);
-                        const isEscalado = isInA || isInB || isInRes;
-
-                        return (
-                          <div
-                            key={player.id}
-                            className={`p-2.5 rounded-xl border flex items-center justify-between transition-all ${
-                              isEscalado
-                                ? "bg-indigo-50/20 border-indigo-100/50 dark:bg-violet-950/10 dark:border-violet-900/30"
-                                : "bg-slate-50/50 border-slate-100 hover:bg-slate-50 hover:border-slate-200 dark:bg-slate-900/40 dark:border-slate-850 dark:hover:bg-slate-900"
-                            }`}
-                          >
-                            <div className="min-w-0 flex items-center gap-2">
-                              <span
-                                className={`p-1.5 rounded-lg shrink-0 ${
-                                  player.gender === Gender.MALE
-                                    ? "bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-400"
-                                    : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
-                                }`}
-                              >
-                                <User className="w-3.5 h-3.5" />
-                              </span>
-                              <div className="min-w-0">
-                                <p className={`text-xs font-bold truncate leading-snug ${styles.textBold}`}>
-                                  {player.name}
-                                </p>
-                                {isEscalado && (
-                                  <span className="text-[9px] font-semibold text-indigo-600 dark:text-violet-400 flex items-center gap-1 mt-0.5 animate-pulse">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-violet-500"></span>
-                                    {isInA ? "No Time A" : isInB ? "No Time B" : "Na Reserva"}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-1 shrink-0 ml-1">
-                              {/* Add to play button */}
-                              <button
-                                type="button"
-                                onClick={() => handleAddToActive(player)}
-                                disabled={isEscalado}
-                                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                  isEscalado
-                                    ? "text-slate-300 bg-slate-100 dark:text-slate-700 dark:bg-slate-800/40 cursor-not-allowed"
-                                    : "text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-violet-400 dark:bg-violet-950/40 dark:hover:bg-violet-950/80"
-                                }`}
-                              >
-                                <Plus className="w-3.5 h-3.5 font-bold" />
-                              </button>
-                              {/* Edit button */}
-                              <button
-                                type="button"
-                                onClick={() => setEditingPlayer(player)}
-                                className={`p-1.5 text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer`}
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              {/* Permanent delete button */}
-                              <button
-                                type="button"
-                                onClick={() => handleDefinitiveDelete(player.id, player.name)}
-                                className={`p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer`}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()
-                  ) : (
-                    <div className="text-center py-8 text-slate-400">
-                      <User className="w-8 h-8 text-slate-300 mx-auto mb-1.5" />
-                      <p className="text-xs font-semibold">Nenhum jogador cadastrado.</p>
-                      <p className="text-[10px] text-slate-400 max-w-[200px] mx-auto mt-1 leading-relaxed">
-                        Cadastre acima os jogadores que participam dos seus encontros e rodízios.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-              </div>
-
             </div>
           </div>
         )}
@@ -2491,9 +2496,9 @@ function PlayerCard({
     if (target.closest("button")) return;
 
     if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
-    touchTimeoutRef.current = setTimeout(() => {
-      onDragStart(player.id);
-    }, 150);
+    
+    // Inicia instantaneamente para o cartão inteiro para maior fluidez
+    onDragStart(player.id);
   };
 
   const handleTouchEnd = () => {
@@ -2585,7 +2590,7 @@ function PlayerCard({
       transition={{ type: "spring", stiffness: 350, damping: 28 }}
       className={`border rounded-xl p-3 flex items-center justify-between shadow-xs transition-all duration-200 ${curCard.bg} ${
         player.id === activeDragId
-          ? "scale-[1.02] border-amber-400 dark:border-amber-500 shadow-md ring-2 ring-amber-450/20 bg-slate-50 dark:bg-slate-850"
+          ? "scale-[1.02] border-amber-400 dark:border-amber-500 shadow-md ring-2 ring-amber-450/20 bg-slate-50 dark:bg-slate-850 pointer-events-none touch-none"
           : "hover:border-slate-300/80 dark:hover:border-slate-700"
       }`}
       draggable={isUnlocked}
@@ -2615,7 +2620,7 @@ function PlayerCard({
       <div className="flex items-center gap-2.5 min-w-0">
         {/* Drag vertical grip handle */}
         <div 
-          className={`shrink-0 select-none ${
+          className={`drag-grip shrink-0 select-none touch-none ${
             !isUnlocked 
               ? "text-slate-200 dark:text-slate-800 opacity-45 cursor-not-allowed pointer-events-none" 
               : player.id === activeDragId 
