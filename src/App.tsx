@@ -165,6 +165,10 @@ export default function App() {
   const [theme, setTheme] = useState<"claro" | "escuro">("claro");
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
 
+  // Players per team configuration state (dynamic N from 2 to 11)
+  const [playersPerTeam, setPlayersPerTeam] = useState<number>(6);
+  const [isPlayersModalOpen, setIsPlayersModalOpen] = useState(false);
+
   // Swapping mode state
   const [swappingPlayerId, setSwappingPlayerId] = useState<string | null>(null);
 
@@ -203,6 +207,7 @@ export default function App() {
     const savedWinsTeam = localStorage.getItem("rodizio_consecutiveWinsTeam");
     const savedWinsPlayers = localStorage.getItem("rodizio_consecutiveWinsPlayers");
     const savedDismissedWins = localStorage.getItem("rodizio_dismissedWinsCount");
+    const savedPlayersPerTeam = localStorage.getItem("rodizio_playersPerTeam");
 
     if (savedA) setTeamA(JSON.parse(savedA));
     if (savedB) setTeamB(JSON.parse(savedB));
@@ -218,6 +223,7 @@ export default function App() {
     if (savedWinsTeam === "A" || savedWinsTeam === "B") setConsecutiveWinsTeam(savedWinsTeam);
     if (savedWinsPlayers) setConsecutiveWinsPlayers(JSON.parse(savedWinsPlayers));
     if (savedDismissedWins) setDismissedWinsCount(parseInt(savedDismissedWins, 10));
+    if (savedPlayersPerTeam) setPlayersPerTeam(parseInt(savedPlayersPerTeam, 10));
   }, []);
 
   // Save active rosters and winner to LocalStorage whenever they change
@@ -237,6 +243,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("rodizio_theme", theme);
   }, [theme]);
+
+  // Save playersPerTeam to LocalStorage
+  useEffect(() => {
+    localStorage.setItem("rodizio_playersPerTeam", playersPerTeam.toString());
+  }, [playersPerTeam]);
 
   // Save consecutive wins stats to LocalStorage
   useEffect(() => {
@@ -276,6 +287,7 @@ export default function App() {
           dismissedGenderImbalanceKey: data.dismissedGenderImbalanceKey || "",
           theme: data.theme || "claro",
           unlockedPlayerIds: data.unlockedPlayerIds || [],
+          playersPerTeam: data.playersPerTeam || 6,
         });
 
         if (incomingSerialized !== lastServerDataRef.current) {
@@ -293,6 +305,7 @@ export default function App() {
           if (data.dismissedGenderImbalanceKey !== undefined) setDismissedGenderImbalanceKey(data.dismissedGenderImbalanceKey);
           if (data.theme !== undefined) setTheme(data.theme);
           if (data.unlockedPlayerIds !== undefined) setUnlockedPlayerIds(data.unlockedPlayerIds);
+          if (data.playersPerTeam !== undefined) setPlayersPerTeam(data.playersPerTeam);
           
           lastServerDataRef.current = incomingSerialized;
           
@@ -316,6 +329,7 @@ export default function App() {
           dismissedGenderImbalanceKey,
           theme,
           unlockedPlayerIds,
+          playersPerTeam,
         };
         const serialized = JSON.stringify(localState);
         lastServerDataRef.current = serialized;
@@ -357,6 +371,7 @@ export default function App() {
       dismissedGenderImbalanceKey,
       theme,
       unlockedPlayerIds,
+      playersPerTeam,
     };
 
     const serialized = JSON.stringify(localState);
@@ -394,6 +409,7 @@ export default function App() {
     dismissedGenderImbalanceKey,
     theme,
     unlockedPlayerIds,
+    playersPerTeam,
     roomCode
   ]);
 
@@ -579,8 +595,8 @@ export default function App() {
     let updatedReserves = [...reserves];
 
     // Distribute according to space and alternating rules
-    if (updatedA.length + updatedB.length < 12) {
-      if (updatedA.length < 6 && updatedB.length < 6) {
+    if (updatedA.length + updatedB.length < 2 * playersPerTeam) {
+      if (updatedA.length < playersPerTeam && updatedB.length < playersPerTeam) {
         if (updatedA.length <= updatedB.length) {
           updatedA.push({ ...player });
           triggerToast(`"${player.name}" escalado no Time A.`, "success");
@@ -588,7 +604,7 @@ export default function App() {
           updatedB.push({ ...player });
           triggerToast(`"${player.name}" escalado no Time B.`, "success");
         }
-      } else if (updatedA.length < 6) {
+      } else if (updatedA.length < playersPerTeam) {
         updatedA.push({ ...player });
         triggerToast(`"${player.name}" escalado no Time A.`, "success");
       } else {
@@ -601,7 +617,7 @@ export default function App() {
     }
 
     // Recalculate and reassign hierarchy values
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam, playersPerTeam);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -649,7 +665,7 @@ export default function App() {
     setConsecutiveWinsPlayers([]);
     setDismissedWinsCount(0);
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam, playersPerTeam);
     setTeamA(updated.teamA);
     setTeamB(updated.teamB);
     setReserves(updated.reserves);
@@ -687,7 +703,7 @@ export default function App() {
       }
     }
 
-    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam);
+    const updated = reassignHierarchyValues(updatedA, updatedB, updatedReserves, winnerTeam, playersPerTeam);
 
     // Reset consecutive wins count upon player deletion
     setConsecutiveWinsCount(0);
@@ -735,9 +751,9 @@ export default function App() {
 
   // Handle game finished and rotation
   const handleGameWinner = (winner: "A" | "B") => {
-    if (teamA.length < 6 || teamB.length < 6) {
+    if (teamA.length < playersPerTeam || teamB.length < playersPerTeam) {
       triggerToast(
-        "A partida só pode terminar se ambos os times estiverem completos com 6 jogadores.",
+        `A partida só pode terminar se ambos os times estiverem completos com ${playersPerTeam} jogadores.`,
         "error"
       );
       return;
@@ -775,17 +791,17 @@ export default function App() {
 
     const R = reserves.length;
 
-    if (R >= 6) {
-      // 6 first reserves enter the losing team
-      const promoted = reserves.slice(0, 6);
-      const remainingReserves = reserves.slice(6);
+    if (R >= playersPerTeam) {
+      // playersPerTeam first reserves enter the losing team
+      const promoted = reserves.slice(0, playersPerTeam);
+      const remainingReserves = reserves.slice(playersPerTeam);
       newLosingTeam = promoted;
-      // All 6 losers go to the end of the reserves list in registration order
+      // All losers go to the end of the reserves list in registration order
       newReserves = [...remainingReserves, ...losingTeam];
     } else {
-      // Less than 6 reserves: they enter at the top, last R losers are displaced
+      // Less than playersPerTeam reserves: they enter at the top, last R losers are displaced
       const promoted = reserves; // all of them (size R)
-      const keptCount = 6 - R;
+      const keptCount = playersPerTeam - R;
       const keptFromL = losingTeam.slice(0, keptCount);
       const displacedFromL = losingTeam.slice(keptCount);
 
@@ -798,7 +814,7 @@ export default function App() {
     const finalB = winner === "B" ? winningTeam : newLosingTeam;
 
     // Reset hierarchy values and set new winner
-    const updated = reassignHierarchyValues(finalA, finalB, newReserves, winner);
+    const updated = reassignHierarchyValues(finalA, finalB, newReserves, winner, playersPerTeam);
     setWinnerTeam(winner);
 
     setTeamA(updated.teamA);
@@ -859,17 +875,17 @@ export default function App() {
 
     // Update the corresponding state and reassign hierarchy values
     if (listType === "A") {
-      const updated = reassignHierarchyValues(listData, teamB, reserves, winnerTeam);
+      const updated = reassignHierarchyValues(listData, teamB, reserves, winnerTeam, playersPerTeam);
       setTeamA(updated.teamA);
       setTeamB(updated.teamB);
       setReserves(updated.reserves);
     } else if (listType === "B") {
-      const updated = reassignHierarchyValues(teamA, listData, reserves, winnerTeam);
+      const updated = reassignHierarchyValues(teamA, listData, reserves, winnerTeam, playersPerTeam);
       setTeamA(updated.teamA);
       setTeamB(updated.teamB);
       setReserves(updated.reserves);
     } else {
-      const updated = reassignHierarchyValues(teamA, teamB, listData, winnerTeam);
+      const updated = reassignHierarchyValues(teamA, teamB, listData, winnerTeam, playersPerTeam);
       setTeamA(updated.teamA);
       setTeamB(updated.teamB);
       setReserves(updated.reserves);
@@ -878,15 +894,15 @@ export default function App() {
 
   // Trigger Team Mixing (Embaralhar com equilíbrio)
   const handleMix = () => {
-    if (teamA.length !== 6 || teamB.length !== 6) {
+    if (teamA.length !== playersPerTeam || teamB.length !== playersPerTeam) {
       triggerToast(
-        "Para misturar, ambos os times precisam estar completos com exatamente 6 jogadores cada.",
+        `Para misturar, ambos os times precisam estar completos com exatamente ${playersPerTeam} jogadores cada.`,
         "error"
       );
       return;
     }
 
-    const mixed = mixTeams(teamA, teamB);
+    const mixed = mixTeams(teamA, teamB, playersPerTeam);
     if (mixed) {
       // Save history before modifying rosters
       pushToHistory();
@@ -924,6 +940,58 @@ export default function App() {
     triggerToast("Todo o cadastro de jogadores e times foi limpo.", "info");
   };
 
+  // Helper to distribute players according to the playersPerTeam rule
+  const distributePlayers = (n: number, playersList: Player[]) => {
+    const updatedA: Player[] = [];
+    const updatedB: Player[] = [];
+    const updatedReserves: Player[] = [];
+
+    playersList.forEach((player, idx) => {
+      const pos = idx + 1;
+      if (pos <= 2 * n) {
+        if (pos % 2 !== 0) {
+          updatedA.push(player);
+        } else {
+          updatedB.push(player);
+        }
+      } else {
+        updatedReserves.push(player);
+      }
+    });
+
+    return {
+      teamA: updatedA,
+      teamB: updatedB,
+      reserves: updatedReserves,
+    };
+  };
+
+  // Handler for when the user selects a new amount of players per team
+  const handleSelectPlayersPerTeam = (count: number) => {
+    setPlayersPerTeam(count);
+    
+    // Save history before modifying rosters
+    pushToHistory();
+
+    // Redistribute registered players initially according to the requested rule
+    const distributed = distributePlayers(count, registeredPlayers);
+    
+    // Assign dynamic hierarchy values using our updated reassignHierarchyValues helper
+    const updatedRosters = reassignHierarchyValues(distributed.teamA, distributed.teamB, distributed.reserves, "A", count);
+    
+    setTeamA(updatedRosters.teamA);
+    setTeamB(updatedRosters.teamB);
+    setReserves(updatedRosters.reserves);
+
+    // Reset consecutive wins count upon changing team size
+    setConsecutiveWinsCount(0);
+    setConsecutiveWinsTeam(null);
+    setConsecutiveWinsPlayers([]);
+    setDismissedWinsCount(0);
+
+    triggerToast(`Modo de jogo de ${count} vs ${count} ativado! Equipes reorganizadas de forma padrão.`, "success");
+  };
+
   // Calculate stats based on persistent registered base and active roles
   const totalPlayers = registeredPlayers.length;
   const totalInGame = teamA.length + teamB.length + reserves.length;
@@ -935,7 +1003,7 @@ export default function App() {
   const countTeamBMen = teamB.filter((p) => p.gender === Gender.MALE).length;
   const countTeamBWomen = teamB.filter((p) => p.gender === Gender.FEMALE).length;
 
-  const showGenderImbalanceWarning = teamA.length === 6 && teamB.length === 6 && (
+  const showGenderImbalanceWarning = teamA.length === playersPerTeam && teamB.length === playersPerTeam && (
     Math.abs(countTeamAWomen - countTeamBWomen) >= 2 || Math.abs(countTeamAMen - countTeamBMen) >= 2
   );
 
@@ -1028,7 +1096,7 @@ export default function App() {
               {isThemeMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsThemeMenuOpen(false)} />
-                  <div className={`absolute right-0 mt-2 w-48 rounded-xl border p-2 shadow-xl z-50 transition-all ${styles.dropdownBg}`}>
+                  <div className={`absolute right-0 mt-2 w-52 rounded-xl border p-2 shadow-xl z-50 transition-all ${styles.dropdownBg}`}>
                     <p className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 mb-1 ${styles.textMuted}`}>
                       Escolher Tema
                     </p>
@@ -1057,6 +1125,27 @@ export default function App() {
                     >
                       <span>Escuro</span>
                       {theme === "escuro" && <Check className="w-3.5 h-3.5 text-violet-400" />}
+                    </button>
+
+                    <div className="border-t border-slate-100 dark:border-slate-800 my-1.5" />
+
+                    <p className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 mb-1 ${styles.textMuted}`}>
+                      Configurações
+                    </p>
+                    <button
+                      onClick={() => {
+                        setIsPlayersModalOpen(true);
+                        setIsThemeMenuOpen(false);
+                      }}
+                      className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover}`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Users className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>jogadores por time</span>
+                      </span>
+                      <span className="text-[10px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded-md font-bold">
+                        {playersPerTeam}
+                      </span>
                     </button>
                   </div>
                 </>
@@ -1142,7 +1231,7 @@ export default function App() {
                 </div>
 
                 <div className="space-y-3">
-                  {teamA.length === 6 && teamB.length === 6 ? (
+                  {teamA.length === playersPerTeam && teamB.length === playersPerTeam ? (
                     <button
                       onClick={handleMix}
                       className="w-full bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 font-bold text-xs py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 group cursor-pointer"
@@ -1156,7 +1245,7 @@ export default function App() {
                         <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-500" />
                         <span>Mistura Indisponível</span>
                       </div>
-                      <p>Ambos os times precisam estar completos com exatamente 6 jogadores para misturar.</p>
+                      <p>Ambos os times precisam estar completos com exatamente {playersPerTeam} jogadores para misturar.</p>
                     </div>
                   )}
 
@@ -1255,10 +1344,10 @@ export default function App() {
                             />
                           ))
                         ) : (
-                          <EmptySlot teamName="A" slotsCount={6} />
+                          <EmptySlot teamName="A" slotsCount={playersPerTeam} />
                         )}
-                        {teamA.length > 0 && teamA.length < 6 && (
-                          <EmptyPlaceholderCount count={6 - teamA.length} label="vaga(s) restante(s)" />
+                        {teamA.length > 0 && teamA.length < playersPerTeam && (
+                          <EmptyPlaceholderCount count={playersPerTeam - teamA.length} label="vaga(s) restante(s)" />
                         )}
                       </AnimatePresence>
                     </div>
@@ -1269,7 +1358,7 @@ export default function App() {
                     <button
                       onClick={() => handleGameWinner("A")}
                       className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer ${
-                        teamA.length === 6 && teamB.length === 6
+                        teamA.length === playersPerTeam && teamB.length === playersPerTeam
                           ? "bg-indigo-600 hover:bg-indigo-500 text-white active:scale-98 shadow-md"
                           : "bg-slate-100 text-slate-400 dark:bg-slate-900 dark:text-slate-600 border border-slate-200/50 dark:border-slate-800/50 cursor-not-allowed font-medium text-xs py-3"
                       }`}
@@ -1335,10 +1424,10 @@ export default function App() {
                             />
                           ))
                         ) : (
-                          <EmptySlot teamName="B" slotsCount={6} />
+                          <EmptySlot teamName="B" slotsCount={playersPerTeam} />
                         )}
-                        {teamB.length > 0 && teamB.length < 6 && (
-                          <EmptyPlaceholderCount count={6 - teamB.length} label="vaga(s) restante(s)" />
+                        {teamB.length > 0 && teamB.length < playersPerTeam && (
+                          <EmptyPlaceholderCount count={playersPerTeam - teamB.length} label="vaga(s) restante(s)" />
                         )}
                       </AnimatePresence>
                     </div>
@@ -1349,7 +1438,7 @@ export default function App() {
                     <button
                       onClick={() => handleGameWinner("B")}
                       className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer ${
-                        teamA.length === 6 && teamB.length === 6
+                        teamA.length === playersPerTeam && teamB.length === playersPerTeam
                           ? "bg-teal-600 hover:bg-teal-500 text-white active:scale-98 shadow-md"
                           : "bg-slate-100 text-slate-400 dark:bg-slate-900 dark:text-slate-600 border border-slate-200/50 dark:border-slate-800/50 cursor-not-allowed font-medium text-xs py-3"
                       }`}
@@ -1421,7 +1510,7 @@ export default function App() {
                       <Users className="w-8 h-8 text-slate-300 mb-1.5" />
                       <p className="text-xs font-semibold">Sem jogadores na reserva.</p>
                       <p className="text-[10px] text-slate-400 max-w-xs mt-0.5">
-                        Jogadores adicionados além dos 12 titulares entram automaticamente nesta fila de espera.
+                        Jogadores adicionados além dos {2 * playersPerTeam} titulares entram automaticamente nesta fila de espera.
                       </p>
                     </div>
                   )}
@@ -1643,25 +1732,25 @@ export default function App() {
                 </h3>
                 <ul className={`text-xs space-y-2.5 list-disc pl-4 font-normal ${styles.rulesText}`}>
                   <li>
-                    <strong className={styles.rulesStrong}>Hierarquia Dinâmica:</strong> O time vencedor da partida anterior sempre recebe as numerações ímpares (1, 3, 5, 7, 9, 11), garantindo prioridade hierárquica na fila. O time perdedor ou rearranjado com a entrada dos reservas recebe as numerações pares (2, 4, 6, 8, 10, 12).
+                    <strong className={styles.rulesStrong}>Hierarquia Dinâmica:</strong> O time vencedor da partida anterior sempre recebe as numerações ímpares (1, 3, 5...), garantindo prioridade hierárquica na fila. O time perdedor ou rearranjado com a entrada dos reservas recebe as numerações pares (2, 4, 6...).
                   </li>
                   <li>
-                    <strong className={styles.rulesStrong}>Entrada Alternada:</strong> Ao escalar novos jogadores, eles preenchem os times ativos alternadamente: o 1º vai para o Time A, o 2º para o Time B, o 3º para o Time A, e assim por diante até completar 12 jogadores. O 13º em diante entra na fila de reserva por ordem de chegada.
+                    <strong className={styles.rulesStrong}>Entrada Alternada:</strong> Ao escalar novos jogadores, eles preenchem os times ativos alternadamente: o 1º vai para o Time A, o 2º para o Time B, o 3º para o Time A, e assim por diante até completar {2 * playersPerTeam} titulares. O {2 * playersPerTeam + 1}º em diante entra na fila de reserva por ordem de chegada.
                   </li>
                   <li>
                     <strong className={styles.rulesStrong}>Reordenação Manual:</strong> Toque e segure no nome de um jogador (celular) ou arraste (desktop) para movê-lo para cima ou para baixo dentro do próprio time ou da reserva. A lista se renumera automaticamente respeitando a regra de rodízio e vitórias.
                   </li>
                   <li>
-                    <strong className={styles.rulesStrong}>Cadastro Reserva:</strong> Jogadores excedentes recebem numerações sequenciais a partir de 13.
+                    <strong className={styles.rulesStrong}>Cadastro Reserva:</strong> Jogadores excedentes recebem numerações sequenciais a partir de {2 * playersPerTeam + 1}.
                   </li>
                   <li>
-                    <strong className={styles.rulesStrong}>Rotação de Perdedor:</strong> Os 6 perdedores vão para o fim da fila de reserva. Se a reserva tiver menos de 6 jogadores, os disponíveis entram no topo do time perdedor, empurrando os últimos do time para o fim da reserva.
+                    <strong className={styles.rulesStrong}>Rotação de Perdedor:</strong> Os {playersPerTeam} perdedores vão para o fim da fila de reserva. Se a reserva tiver menos de {playersPerTeam} jogadores, os disponíveis entram no topo do time perdedor, empurrando os últimos do time para o fim da reserva.
                   </li>
                   <li>
                     <strong className={styles.rulesStrong}>Exclusão Inteligente:</strong> Se um jogador ativo for excluído, o 1° da reserva sobe imediatamente e entra no topo daquele time.
                   </li>
                   <li>
-                    <strong className={styles.rulesStrong}>Mistura Balanceada:</strong> Troca 3 jogadores aleatórios de cada time, garantindo quantidade igual de gêneros em cada time (se ímpar, Time A fica com 1 homem a mais). Os jogadores são listados respeitando sua numeração original.
+                    <strong className={styles.rulesStrong}>Mistura Balanceada:</strong> Troca {Math.floor(playersPerTeam / 2)} jogadores aleatórios de cada time, garantindo quantidade igual de gêneros em cada time (se o total de homens for ímpar, Time A fica com 1 homem a mais). Os jogadores são listados respeitando sua numeração original.
                   </li>
                 </ul>
               </div>
@@ -1815,6 +1904,71 @@ export default function App() {
                   onClick={handleClearAll}
                 >
                   Sim, Limpar Tudo
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* JOGADORES POR TIME CONFIGURATION DIALOG */}
+      <AnimatePresence>
+        {isPlayersModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className={`rounded-2xl shadow-xl max-w-sm w-full p-6 border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
+            >
+              <div className="flex items-center gap-3 text-indigo-600 dark:text-violet-400 mb-3">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 rounded-xl">
+                  <Users className="w-6 h-6" />
+                </div>
+                <h3 className={`font-display font-bold text-lg ${styles.textBold}`}>
+                  Jogadores por time
+                </h3>
+              </div>
+              <p className={`text-xs leading-relaxed mb-4 ${styles.textMuted}`}>
+                Altere o número de jogadores por equipe (mínimo 2 e máximo 11). Por padrão, o aplicativo organiza partidas de 6 jogadores.
+              </p>
+
+              {/* Grid of options from 2 to 11 */}
+              <div className="max-h-60 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
+                {Array.from({ length: 10 }, (_, i) => i + 2).map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() => handleSelectPlayersPerTeam(num)}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all ${
+                      playersPerTeam === num
+                        ? "border-indigo-500 bg-indigo-500/5 dark:bg-violet-500/5 text-indigo-600 dark:text-violet-400 font-bold"
+                        : `${styles.border} ${styles.dropdownItemHover} ${styles.textBold}`
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all ${
+                        playersPerTeam === num
+                          ? "border-indigo-500 text-indigo-500 dark:border-violet-400 dark:text-violet-400"
+                          : "border-slate-300 dark:border-slate-600"
+                      }`}>
+                        {playersPerTeam === num && (
+                          <span className="w-2 h-2 rounded-full bg-indigo-600 dark:bg-violet-400" />
+                        )}
+                      </span>
+                      <span>{num} Jogadores {num === 6 && <span className="text-[10px] opacity-60 font-normal">(Padrão)</span>}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-2.5 mt-6 justify-end">
+                <button
+                  type="button"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer w-full"
+                  onClick={() => setIsPlayersModalOpen(false)}
+                >
+                  Confirmar e Organizar
                 </button>
               </div>
             </motion.div>
