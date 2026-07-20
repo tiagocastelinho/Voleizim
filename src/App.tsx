@@ -128,6 +128,7 @@ export default function App() {
 
   const isApplyingSnapshotRef = useRef(false);
   const lastServerDataRef = useRef<string>("");
+  const hasLoadedFromServerRef = useRef(false);
 
   // State for Teams and Reserves
   const [teamA, setTeamA] = useState<Player[]>([]);
@@ -267,6 +268,7 @@ export default function App() {
   // Load and subscribe to Firestore room state
   useEffect(() => {
     setSyncStatus("connecting");
+    hasLoadedFromServerRef.current = false; // Reset loaded flag when room changes!
     const docRef = doc(db, "rooms", roomCode);
 
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
@@ -313,6 +315,7 @@ export default function App() {
             isApplyingSnapshotRef.current = false;
           }, 50);
         }
+        hasLoadedFromServerRef.current = true; // Mark initial load as completed successfully
         setSyncStatus("synced");
       } else {
         // If room document doesn't exist yet, we initialize it with our current local state!
@@ -339,6 +342,7 @@ export default function App() {
           updatedAt: serverTimestamp()
         })
           .then(() => {
+            hasLoadedFromServerRef.current = true; // Mark initial load as completed successfully
             setSyncStatus("synced");
           })
           .catch((err) => {
@@ -356,6 +360,7 @@ export default function App() {
 
   // Synchronize local state updates back to Firestore
   useEffect(() => {
+    if (!hasLoadedFromServerRef.current) return; // CRITICAL: Skip writing until the first server load is finished!
     if (isApplyingSnapshotRef.current) return;
 
     const localState = {
