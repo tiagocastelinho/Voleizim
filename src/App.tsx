@@ -13,7 +13,6 @@ import {
   Trophy,
   Users,
   User,
-  Sparkles,
   RotateCcw,
   AlertCircle,
   Save,
@@ -35,13 +34,12 @@ import {
   CloudOff,
   Copy,
   ExternalLink,
-  Wifi,
 } from "lucide-react";
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./lib/firebase";
 import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
 
-// Design Palette configurations for Claro, Escuro, and Pastel themes
+// Design Palette configurations for Claro and Escuro themes
 const themeStyles = {
   claro: {
     bg: "bg-slate-50 text-slate-800",
@@ -111,40 +109,6 @@ const themeStyles = {
     rulesText: "text-slate-300",
     rulesStrong: "text-white",
   },
-  pastel: {
-    bg: "bg-[#FCFAF2] text-[#4E3F30]",
-    headerBg: "bg-[#F3EBE0] border-[#E8DEC9]",
-    headerTitle: "text-[#3D2F20]",
-    headerSub: "text-[#80705E]",
-    cardBg: "bg-[#FCFAF5] border-[#E8DFCF] shadow-xs",
-    cardTitle: "text-[#3D2F20]",
-    cardSub: "text-[#80705E]",
-    inputBg: "bg-white border-[#DCD0C0] text-[#3D2F20] placeholder-[#B5A898] focus:border-[#C0A890]",
-    tabActive: "bg-white text-[#3D2F20] shadow-xs border border-[#E8DEC9]",
-    tabInactive: "text-[#80705E] hover:text-[#3D2F20]",
-    tabContainer: "bg-[#F3EBE0] border-[#E8DEC9]",
-    textMuted: "text-[#80705E]",
-    textBold: "text-[#3D2F20]",
-    border: "border-[#E8DFCF]",
-    divider: "border-[#E8DFCF]",
-    accentBg: "bg-[#8A6F53] text-[#FDFCFB]",
-    accentHover: "hover:bg-[#785E44]",
-    accentText: "text-[#8A6F53]",
-    teamABg: "bg-[#8E7E70]",
-    teamAActions: "bg-[#796A5C] text-[#FDFCFB] border-[#9E8E80]/30",
-    teamBBg: "bg-[#A3B19B]",
-    teamBActions: "bg-[#8A9981] text-[#FDFCFB] border-[#B8C7B0]/30",
-    reserveBg: "bg-[#D8B690]",
-    reserveText: "text-[#78542F]",
-    playerCard: "bg-white border-[#E8DFCF]",
-    playerCardHover: "hover:border-[#C8BFAF] hover:bg-[#F9F6F0]",
-    dropdownBg: "bg-[#FCFAF5] border-[#DCD0C0] shadow-md text-[#3D2F20]",
-    dropdownItemHover: "hover:bg-[#F3EBE0] text-[#3D2F20] hover:text-[#281E15]",
-    rulesBg: "bg-[#FAF5ED] border border-[#E8DEC9] text-[#4E3F30]",
-    rulesTitle: "text-[#3D2F20]",
-    rulesText: "text-[#5C4C3E]",
-    rulesStrong: "text-[#281E15]",
-  },
 };
 
 export default function App() {
@@ -197,8 +161,8 @@ export default function App() {
   // Tab navigation inside panel: 'cadastro' or 'acoes' (Controle & Partida is default as requested!)
   const [activeTab, setActiveTab] = useState<"cadastro" | "acoes">("acoes");
 
-  // Visual Theme option state ('claro' | 'escuro' | 'pastel')
-  const [theme, setTheme] = useState<"claro" | "escuro" | "pastel">("claro");
+  // Visual Theme option state ('claro' | 'escuro')
+  const [theme, setTheme] = useState<"claro" | "escuro">("claro");
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
 
   // Swapping mode state
@@ -244,7 +208,7 @@ export default function App() {
     if (savedB) setTeamB(JSON.parse(savedB));
     if (savedReserves) setReserves(JSON.parse(savedReserves));
     if (savedRegistered) setRegisteredPlayers(JSON.parse(savedRegistered));
-    if (savedTheme === "claro" || savedTheme === "escuro" || savedTheme === "pastel") {
+    if (savedTheme === "claro" || savedTheme === "escuro") {
       setTheme(savedTheme);
     }
     if (savedWinnerTeam === "A" || savedWinnerTeam === "B") {
@@ -947,47 +911,7 @@ export default function App() {
     }
   };
 
-  // Seed 14 typical players into registered database
-  const handleSeedDemoPlayers = () => {
-    const testPlayers = [
-      { name: "Carlos Silva", gender: Gender.MALE },
-      { name: "Ana Souza", gender: Gender.FEMALE },
-      { name: "Bruno Oliveira", gender: Gender.MALE },
-      { name: "Beatriz Lima", gender: Gender.FEMALE },
-      { name: "Daniel Costa", gender: Gender.MALE },
-      { name: "Camila Rocha", gender: Gender.FEMALE },
-      { name: "Eduardo Santos", gender: Gender.MALE },
-      { name: "Debora Alves", gender: Gender.FEMALE },
-      { name: "Felipe Pereira", gender: Gender.MALE },
-      { name: "Elaine Martins", gender: Gender.FEMALE },
-      { name: "Gustavo Ferreira", gender: Gender.MALE },
-      { name: "Fernanda Dias", gender: Gender.FEMALE },
-      { name: "Hugo Rezende", gender: Gender.MALE },
-      { name: "Gisele Nunes", gender: Gender.FEMALE },
-    ];
 
-    const seeded: Player[] = testPlayers.map((tp, i) => ({
-      id: `seed-${i}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      name: tp.name,
-      gender: tp.gender,
-      hierarchyValue: 0,
-    }));
-
-    // Merge without duplicates and sort alphabetically
-    const updatedRegistered = [...registeredPlayers];
-    seeded.forEach((sp) => {
-      if (!updatedRegistered.some((p) => p.name.toLowerCase() === sp.name.toLowerCase())) {
-        updatedRegistered.push(sp);
-      }
-    });
-
-    updatedRegistered.sort((a, b) =>
-      a.name.localeCompare(b.name, "pt", { sensitivity: "base" })
-    );
-
-    setRegisteredPlayers(updatedRegistered);
-    triggerToast("Lista de cadastro preenchida com 14 jogadores de teste!", "success");
-  };
 
   // Reset entire state
   const handleClearAll = () => {
@@ -1026,7 +950,7 @@ export default function App() {
       <header className={`border-b py-5 px-4 sticky top-0 z-30 shadow-xs transition-colors duration-200 ${styles.headerBg}`}>
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4 relative">
           <div className="flex items-center gap-3">
-            <div className={`${theme === "escuro" ? "bg-violet-600" : theme === "pastel" ? "bg-[#8A6F53]" : "bg-indigo-600"} text-white p-2.5 rounded-xl shadow-md`}>
+            <div className={`${theme === "escuro" ? "bg-violet-600" : "bg-indigo-600"} text-white p-2.5 rounded-xl shadow-md`}>
               <Users className="w-6 h-6" />
             </div>
             <div>
@@ -1047,66 +971,28 @@ export default function App() {
                 setTempRoomCode(roomCode);
                 setShowRoomModal(true);
               }}
-              className={`flex items-center gap-2 text-xs font-bold px-3 py-2.5 rounded-xl border transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
+              className={`relative flex h-9 w-9 items-center justify-center rounded-full border shadow-xs transition-all duration-200 hover:scale-[1.08] active:scale-[0.92] cursor-pointer ${
                 syncStatus === "synced"
-                  ? theme === "escuro"
-                    ? "bg-emerald-950/25 border-emerald-900/60 text-emerald-400 hover:bg-emerald-950/40"
-                    : theme === "pastel"
-                    ? "bg-[#EBF7EE] border-[#B7D2BF] text-[#2D5A27] hover:bg-[#D9EFE0]"
-                    : "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100/50"
-                  : syncStatus === "syncing"
-                  ? theme === "escuro"
-                    ? "bg-amber-950/25 border-amber-900/60 text-amber-400 hover:bg-amber-950/40"
-                    : theme === "pastel"
-                    ? "bg-[#FFF9E6] border-[#E8D490] text-[#7C5A0B] hover:bg-[#FDF1CC]"
-                    : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100/50 animate-pulse"
-                  : syncStatus === "connecting"
-                  ? theme === "escuro"
-                    ? "bg-slate-900 border-slate-800 text-slate-400"
-                    : theme === "pastel"
-                    ? "bg-[#F3ECE0] border-[#D6C4AD] text-[#635541]"
-                    : "bg-slate-50 border-slate-200 text-slate-500"
-                  : // error
-                    theme === "escuro"
-                    ? "bg-rose-950/25 border-rose-900/60 text-rose-400 hover:bg-rose-950/40"
-                    : theme === "pastel"
-                    ? "bg-[#FCECE8] border-[#DFB6AB] text-[#6D2E1F] hover:bg-[#FADBD2]"
-                    : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100/50"
+                  ? "bg-emerald-500 border-emerald-600 dark:border-emerald-700 text-white"
+                  : syncStatus === "syncing" || syncStatus === "connecting"
+                  ? "bg-amber-500 border-amber-600 dark:border-amber-700 text-white animate-pulse"
+                  : "bg-rose-500 border-rose-600 dark:border-rose-700 text-white"
               }`}
-              title="Sincronização Online e Código de Sala"
+              title="Sincronização Online (Clique para gerenciar sala)"
             >
               {syncStatus === "synced" ? (
-                <>
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  <Cloud className="w-4 h-4" />
-                </>
-              ) : syncStatus === "syncing" ? (
-                <>
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                  </span>
-                  <Cloud className="w-4 h-4" />
-                </>
-              ) : syncStatus === "connecting" ? (
-                <Wifi className="w-4 h-4 animate-pulse text-slate-400" />
+                <span className="absolute inset-0 rounded-full border-2 border-emerald-400 animate-ping opacity-25 pointer-events-none"></span>
+              ) : syncStatus === "syncing" || syncStatus === "connecting" ? (
+                <span className="absolute inset-0 rounded-full border-2 border-amber-400 animate-ping opacity-25 pointer-events-none"></span>
               ) : (
-                <CloudOff className="w-4 h-4" />
+                <span className="absolute inset-0 rounded-full border-2 border-rose-400 animate-ping opacity-15 pointer-events-none"></span>
               )}
-              <span className="hidden sm:inline">Sala:</span>
-              <span className="font-mono text-xs opacity-90 max-w-[80px] truncate">
-                {roomCode}
-              </span>
+              <span className="h-3 w-3 rounded-full bg-white shadow-xs"></span>
             </button>
             {/* Quick Stats Banner */}
             <div className={`flex flex-wrap items-center gap-4 text-xs font-semibold p-2.5 rounded-xl border transition-colors duration-200 ${
               theme === "escuro" 
                 ? "bg-slate-900 border-slate-800 text-slate-300" 
-                : theme === "pastel" 
-                ? "bg-[#FAF5ED] border-[#DCD0C0] text-[#4E3F30]" 
                 : "bg-slate-50 border-slate-100 text-slate-600"
             }`}>
               <div className="flex items-center gap-1">
@@ -1132,8 +1018,6 @@ export default function App() {
                 className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-center ${
                   theme === "escuro" 
                     ? "bg-slate-900 border-slate-850 hover:bg-slate-800 text-slate-300" 
-                    : theme === "pastel" 
-                    ? "bg-[#FCFAF5] border-[#DCD0C0] hover:bg-[#F3EBE0] text-[#3D2F20]" 
                     : "bg-white border-slate-200 hover:bg-slate-50 text-slate-600"
                 }`}
                 title="Configurações de Visual"
@@ -1144,7 +1028,7 @@ export default function App() {
               {isThemeMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsThemeMenuOpen(false)} />
-                  <div className={`absolute right-0 mt-2 w-52 rounded-xl border p-2 shadow-xl z-50 transition-all ${styles.dropdownBg}`}>
+                  <div className={`absolute right-0 mt-2 w-48 rounded-xl border p-2 shadow-xl z-50 transition-all ${styles.dropdownBg}`}>
                     <p className={`text-[9px] font-extrabold uppercase tracking-widest px-2.5 py-1 mb-1 ${styles.textMuted}`}>
                       Escolher Tema
                     </p>
@@ -1158,7 +1042,7 @@ export default function App() {
                         theme === "claro" ? "bg-slate-100 dark:bg-slate-800 font-bold" : ""
                       }`}
                     >
-                      <span>☀️ Visual Claro</span>
+                      <span>Claro</span>
                       {theme === "claro" && <Check className="w-3.5 h-3.5 text-indigo-600" />}
                     </button>
                     <button
@@ -1171,21 +1055,8 @@ export default function App() {
                         theme === "escuro" ? "bg-slate-800 font-bold" : ""
                       }`}
                     >
-                      <span>🌙 Visual Escuro</span>
+                      <span>Escuro</span>
                       {theme === "escuro" && <Check className="w-3.5 h-3.5 text-violet-400" />}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setTheme("pastel");
-                        setIsThemeMenuOpen(false);
-                        triggerToast("Visual Pastel ativado!", "success");
-                      }}
-                      className={`w-full text-left text-xs font-semibold py-2 px-2.5 rounded-lg flex items-center justify-between cursor-pointer transition-colors ${styles.dropdownItemHover} ${
-                        theme === "pastel" ? "bg-[#FAF5ED] font-bold" : ""
-                      }`}
-                    >
-                      <span>🎨 Pastel (Marrom & Bege)</span>
-                      {theme === "pastel" && <Check className="w-3.5 h-3.5 text-[#8A6F53]" />}
                     </button>
                   </div>
                 </>
@@ -1242,8 +1113,6 @@ export default function App() {
                 <div className={`p-4 rounded-2xl border flex flex-col gap-2.5 transition-all ${
                   theme === "escuro" 
                     ? "bg-violet-950/20 border-violet-800 text-violet-200" 
-                    : theme === "pastel" 
-                    ? "bg-[#FAF5ED] border-[#DCD0C0] text-[#3D2F20]" 
                     : "bg-indigo-50 border-indigo-100 text-indigo-800"
                 }`}>
                   <div className="flex items-center gap-2 text-xs font-semibold">
@@ -1299,8 +1168,6 @@ export default function App() {
                       history.length > 0
                         ? theme === "escuro"
                           ? "bg-slate-800 hover:bg-slate-700 text-white border-slate-700 shadow-xs"
-                          : theme === "pastel"
-                          ? "bg-[#FAF5ED] hover:bg-[#F3EBE0] text-[#8A6F53] border-[#DCD0C0] shadow-xs"
                           : "bg-white hover:bg-slate-50 text-indigo-600 border-indigo-200 shadow-xs"
                         : "bg-slate-100/50 text-slate-300 dark:bg-slate-900/50 dark:text-slate-700 border-slate-200/20 dark:border-slate-800/20"
                     }`}
@@ -1325,27 +1192,6 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Seed data utilities inside control panel */}
-                <div className="pt-4 border-t space-y-3 border-slate-100 dark:border-slate-800">
-                  <span className={`block text-[10px] font-extrabold uppercase tracking-widest ${styles.textMuted}`}>
-                    Utilitários de Roster
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={handleSeedDemoPlayers}
-                    className={`w-full border border-dashed text-slate-600 dark:text-slate-300 py-2.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                      theme === "escuro" 
-                        ? "border-slate-800 bg-slate-900/40 hover:bg-slate-900" 
-                        : theme === "pastel" 
-                        ? "border-[#DCD0C0] bg-[#FAF5ED]/50 hover:bg-[#FAF5ED]" 
-                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
-                    }`}
-                  >
-                    <Sparkles className="w-4 h-4 text-indigo-500" />
-                    Gerar 14 Jogadores de Teste
-                  </button>
-                </div>
               </div>
             </div>
 
@@ -1355,7 +1201,7 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Time A Panel */}
-                <div className={`rounded-2xl border shadow-xs overflow-hidden flex flex-col justify-between ${styles.cardBg} ${theme === "escuro" ? "border-violet-900/40" : theme === "pastel" ? "border-[#E8DFCF]" : "border-indigo-100/80"}`}>
+                <div className={`rounded-2xl border shadow-xs overflow-hidden flex flex-col justify-between ${styles.cardBg} ${theme === "escuro" ? "border-violet-900/40" : "border-indigo-100/80"}`}>
                   <div>
                     <div className={`${styles.teamABg} text-white p-4 flex items-center justify-between`}>
                       <h2 className="font-display font-bold text-lg tracking-tight flex items-center gap-2">
@@ -1419,7 +1265,7 @@ export default function App() {
                   </div>
 
                   {/* Victory selection for Time A */}
-                  <div className={`p-4 border-t ${theme === "escuro" ? "border-slate-800 bg-slate-900/20" : theme === "pastel" ? "border-[#E8DFCF] bg-[#FAF5ED]/30" : "border-slate-100 bg-slate-50/50"}`}>
+                  <div className={`p-4 border-t ${theme === "escuro" ? "border-slate-800 bg-slate-900/20" : "border-slate-100 bg-slate-50/50"}`}>
                     <button
                       onClick={() => handleGameWinner("A")}
                       className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer ${
@@ -1435,7 +1281,7 @@ export default function App() {
                 </div>
 
                 {/* Time B Panel */}
-                <div className={`rounded-2xl border shadow-xs overflow-hidden flex flex-col justify-between ${styles.cardBg} ${theme === "escuro" ? "border-emerald-900/40" : theme === "pastel" ? "border-[#E8DFCF]" : "border-teal-100/80"}`}>
+                <div className={`rounded-2xl border shadow-xs overflow-hidden flex flex-col justify-between ${styles.cardBg} ${theme === "escuro" ? "border-emerald-900/40" : "border-teal-100/80"}`}>
                   <div>
                     <div className={`${styles.teamBBg} text-white p-4 flex items-center justify-between`}>
                       <h2 className="font-display font-bold text-lg tracking-tight flex items-center gap-2">
@@ -1499,7 +1345,7 @@ export default function App() {
                   </div>
 
                   {/* Victory selection for Time B */}
-                  <div className={`p-4 border-t ${theme === "escuro" ? "border-slate-800 bg-slate-900/20" : theme === "pastel" ? "border-[#E8DFCF] bg-[#FAF5ED]/30" : "border-slate-100 bg-slate-50/50"}`}>
+                  <div className={`p-4 border-t ${theme === "escuro" ? "border-slate-800 bg-slate-900/20" : "border-slate-100 bg-slate-50/50"}`}>
                     <button
                       onClick={() => handleGameWinner("B")}
                       className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer ${
@@ -1526,7 +1372,7 @@ export default function App() {
                     </h2>
                     <p className={`text-xs ${styles.textMuted}`}>Ordenados por chegada - Sequência a partir de #13</p>
                   </div>
-                  <span className={`${styles.reserveBg} ${theme === "escuro" ? "text-white" : theme === "pastel" ? "text-[#3D2F20]" : "text-amber-900"} text-xs font-extrabold px-3 py-1 rounded-full font-mono shadow-xs border border-white/10`}>
+                  <span className={`${styles.reserveBg} ${theme === "escuro" ? "text-white" : "text-amber-900"} text-xs font-extrabold px-3 py-1 rounded-full font-mono shadow-xs border border-white/10`}>
                     {reserves.length} na fila
                   </span>
                 </div>
@@ -2111,8 +1957,6 @@ export default function App() {
                       className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                         theme === "escuro"
                           ? "border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-850"
-                          : theme === "pastel"
-                          ? "border-[#DCD0C0] bg-[#FAF5ED] text-[#8C6D3C] hover:bg-[#FAF5ED]/80"
                           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                       }`}
                       onClick={() => setDismissedGenderImbalanceKey(currentRosterKey)}
@@ -2124,8 +1968,6 @@ export default function App() {
                       className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
                         theme === "escuro"
                           ? "bg-violet-600 hover:bg-violet-750"
-                          : theme === "pastel"
-                          ? "bg-[#8A6F53] hover:bg-[#775F46]"
                           : "bg-indigo-600 hover:bg-indigo-750"
                       }`}
                       onClick={() => {
@@ -2165,8 +2007,6 @@ export default function App() {
                       className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                         theme === "escuro"
                           ? "border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-850"
-                          : theme === "pastel"
-                          ? "border-[#DCD0C0] bg-[#FAF5ED] text-[#8C6D3C] hover:bg-[#FAF5ED]/80"
                           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                       }`}
                       onClick={() => setDismissedWinsCount(consecutiveWinsCount)}
@@ -2178,8 +2018,6 @@ export default function App() {
                       className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-2 ${
                         theme === "escuro"
                           ? "bg-violet-600 hover:bg-violet-750"
-                          : theme === "pastel"
-                          ? "bg-[#8A6F53] hover:bg-[#775F46]"
                           : "bg-indigo-600 hover:bg-indigo-750"
                       }`}
                       onClick={() => {
@@ -2220,8 +2058,6 @@ export default function App() {
                 className={`absolute top-4 right-4 p-2 rounded-xl border transition-colors cursor-pointer ${
                   theme === "escuro"
                     ? "bg-slate-900 border-slate-850 hover:bg-slate-800 text-slate-400 hover:text-slate-200"
-                    : theme === "pastel"
-                    ? "bg-[#FCFAF5] border-[#DCD0C0] hover:bg-[#F3EBE0] text-[#8C6D3C]"
                     : "bg-white border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-700"
                 }`}
               >
@@ -2250,8 +2086,6 @@ export default function App() {
               <div className={`p-4 rounded-2xl mb-5 flex flex-col gap-2.5 ${
                 theme === "escuro" 
                   ? "bg-slate-900/60 border border-slate-800" 
-                  : theme === "pastel" 
-                  ? "bg-[#FAF5ED] border border-[#DCD0C0]" 
                   : "bg-slate-50 border border-slate-100"
               }`}>
                 <div className="flex items-center justify-between">
@@ -2297,8 +2131,6 @@ export default function App() {
                     className={`p-1.5 rounded-lg border flex items-center gap-1 text-[10px] font-bold cursor-pointer transition-colors ${
                       theme === "escuro"
                         ? "bg-slate-900 border-slate-850 hover:bg-slate-800 text-slate-300"
-                        : theme === "pastel"
-                        ? "bg-[#FCFAF5] border-[#DCD0C0] hover:bg-[#F3EBE0] text-[#8C6D3C]"
                         : "bg-white border-slate-200 hover:bg-slate-50 text-slate-600"
                     }`}
                     title="Copiar link de compartilhamento"
@@ -2325,8 +2157,6 @@ export default function App() {
                       className={`flex-1 py-2 px-3.5 rounded-xl text-xs font-semibold border focus:outline-hidden transition-all ${
                         theme === "escuro"
                           ? "bg-slate-950 border-slate-800 text-slate-200 focus:border-violet-500"
-                          : theme === "pastel"
-                          ? "bg-[#FCFAF5] border-[#DCD0C0] text-[#3D2F20] focus:border-[#8A6F53]"
                           : "bg-white border-slate-250 text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                       }`}
                     />
@@ -2339,8 +2169,6 @@ export default function App() {
                       className={`px-3 py-2 rounded-xl border text-[11px] font-extrabold transition-colors cursor-pointer ${
                         theme === "escuro"
                           ? "bg-slate-900 border-slate-800 hover:bg-slate-850 text-slate-300"
-                          : theme === "pastel"
-                          ? "bg-[#FCFAF5] border-[#DCD0C0] hover:bg-[#F3EBE0] text-[#8C6D3C]"
                           : "bg-white border-slate-200 hover:bg-slate-50 text-slate-600"
                       }`}
                       title="Gerar código de sala aleatório"
@@ -2357,8 +2185,6 @@ export default function App() {
                     className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                       theme === "escuro"
                         ? "border-slate-800 bg-slate-900 text-slate-300 hover:bg-slate-850"
-                        : theme === "pastel"
-                        ? "border-[#DCD0C0] bg-[#FAF5ED] text-[#8C6D3C] hover:bg-[#FAF5ED]/80"
                         : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                     }`}
                   >
@@ -2377,8 +2203,6 @@ export default function App() {
                     className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none ${
                       theme === "escuro"
                         ? "bg-violet-600 hover:bg-violet-750"
-                        : theme === "pastel"
-                        ? "bg-[#8A6F53] hover:bg-[#775F46]"
                         : "bg-indigo-600 hover:bg-indigo-750"
                     }`}
                   >
@@ -2446,7 +2270,7 @@ interface PlayerCardProps {
   onSwap?: () => void;
   isSwappingSelected?: boolean;
   isSwappingModeActive?: boolean;
-  theme?: "claro" | "escuro" | "pastel";
+  theme?: "claro" | "escuro";
 
   // Drag props
   listType: "A" | "B" | "Res";
@@ -2562,24 +2386,9 @@ function PlayerCard({
         ? "bg-violet-900/40 text-violet-300 border border-violet-800/50" 
         : "bg-emerald-900/40 text-emerald-300 border border-emerald-800/50",
     },
-    pastel: {
-      bg: isSwappingSelected
-        ? "bg-[#FAF1E6] border-[#8A6F53] ring-2 ring-[#8A6F53]/20"
-        : "bg-white border-[#E8DFCF]",
-      text: "text-[#3D2F20]",
-      textSub: "text-[#80705E]",
-      buttonHover: "hover:bg-[#F3EBE0]",
-      badgeMale: "bg-[#EBF3F5] text-[#4E7680] border border-[#D6E5E8]",
-      badgeFemale: "bg-[#FAF0F2] text-[#8C5362] border border-[#F2D1DA]",
-      badgeHierarchy: isReserve 
-        ? "bg-[#FAF5ED] text-[#80705E]" 
-        : accentColor === "indigo" 
-        ? "bg-[#F3EBE0] text-[#5C4C3E] border border-[#E8DEC9]" 
-        : "bg-[#E9EDE6] text-[#5A6953] border border-[#D5DDD0]",
-    },
   };
 
-  const curCard = cardStyles[theme];
+  const curCard = cardStyles[theme || "claro"];
 
   return (
     <motion.div
