@@ -530,6 +530,11 @@ export default function App() {
     arr1[p1Loc.index] = p2;
     arr2[p2Loc.index] = p1;
 
+    // Sort arrays to respect the hierarchical order after swapping
+    updatedA.sort((a, b) => a.hierarchyValue - b.hierarchyValue);
+    updatedB.sort((a, b) => a.hierarchyValue - b.hierarchyValue);
+    updatedReserves.sort((a, b) => a.hierarchyValue - b.hierarchyValue);
+
     // Reset consecutive wins count upon manual swapping
     setConsecutiveWinsCount(0);
     setConsecutiveWinsTeam(null);
@@ -2598,7 +2603,7 @@ function PlayerCard({
       onDragEnd={onDragEnd}
       onDragOver={(e) => {
         e.preventDefault();
-        if (isUnlocked && activeDragId && activeDragId !== player.id) {
+        if (activeDragId && activeDragId !== player.id) {
           onDragMove(activeDragId, player.id);
         }
       }}
