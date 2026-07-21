@@ -1930,7 +1930,7 @@ export default function App() {
                                       className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold cursor-pointer hover:opacity-80 transition-all ${getScoreStyles(player)} flex items-center gap-1`}
                                       title="Clique para ver os dias de presença"
                                     >
-                                      <span>Score: {player.isGuest ? "—" : getPlayerScore(player.id)}</span>
+                                      <span>{player.isGuest ? "—" : getPlayerScore(player.id)}</span>
                                     </button>
                                   </div>
                                   {isEscalado && (
@@ -1995,6 +1995,22 @@ export default function App() {
 
             {/* Bottom Section: Rules & Dangerous Actions below all registered players */}
             <div className="space-y-6">
+              {/* Histórico de Presença button immediately below registered names */}
+              <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+                <div className="space-y-0.5">
+                  <p className={`text-[11px] font-bold uppercase tracking-wider ${theme === "escuro" ? "text-violet-400" : "text-indigo-650"}`}>Histórico & Frequência</p>
+                  <p className={`text-[10px] ${styles.textMuted}`}>Visualize o painel completo de presença dos encontros anteriores</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPresenceHistoryOpen(true)}
+                  className="text-xs bg-indigo-600 hover:bg-indigo-550 text-white font-bold flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-sm dark:bg-violet-600 dark:hover:bg-violet-500 border border-transparent"
+                >
+                  <History className="w-3.5 h-3.5" />
+                  Histórico de Presença
+                </button>
+              </div>
+
               {/* Rules Help Card inside Cadastro tab */}
               <div className={`rounded-2xl p-6 shadow-md space-y-3.5 ${styles.rulesBg}`}>
                 <h3 className={`font-display font-semibold text-sm flex items-center gap-2 ${styles.rulesTitle}`}>
@@ -2024,22 +2040,6 @@ export default function App() {
                     <strong className={styles.rulesStrong}>Mistura Balanceada:</strong> Troca {Math.floor(playersPerTeam / 2)} jogadores aleatórios de cada time, garantindo quantidade igual de gêneros em cada time (se o total de homens for ímpar, Time A fica com 1 homem a mais). Os jogadores são listados respeitando sua numeração original.
                   </li>
                 </ul>
-              </div>
-
-              {/* Histórico de Presença button at the bottom */}
-              <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
-                <div className="space-y-0.5">
-                  <p className={`text-[11px] font-bold uppercase tracking-wider ${theme === "escuro" ? "text-violet-400" : "text-indigo-650"}`}>Histórico & Frequência</p>
-                  <p className={`text-[10px] ${styles.textMuted}`}>Visualize o painel completo de presença e convidados do dia</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsPresenceHistoryOpen(true)}
-                  className="text-xs bg-indigo-600 hover:bg-indigo-550 text-white font-bold flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-sm dark:bg-violet-600 dark:hover:bg-violet-500 border border-transparent"
-                >
-                  <History className="w-3.5 h-3.5" />
-                  Histórico de Presença
-                </button>
               </div>
             </div>
           </div>
@@ -2288,10 +2288,10 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className={`font-display font-semibold text-base ${styles.textBold}`}>
-                      Histórico de Presença & Cadastro
+                      Histórico de Listas de Presença
                     </h3>
                     <p className={`text-[10px] font-medium ${styles.textMuted}`}>
-                      Frequência atual dos jogadores e gestão de convidados
+                      Listas de presença dos encontros encerrados e arquivados
                     </p>
                   </div>
                 </div>
@@ -2304,434 +2304,114 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Segmented Tab Bar */}
-              <div className="flex border-b border-slate-100 dark:border-slate-850 px-6 shrink-0 bg-slate-50/50 dark:bg-slate-900/20">
-                <button
-                  type="button"
-                  onClick={() => setHistoryModalTab("frequencia")}
-                  className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-                    historyModalTab === "frequencia"
-                      ? "border-indigo-600 text-indigo-600 dark:border-violet-400 dark:text-violet-400 font-extrabold"
-                      : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  Frequência & Scores
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHistoryModalTab("arquivos")}
-                  className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
-                    historyModalTab === "arquivos"
-                      ? "border-indigo-600 text-indigo-600 dark:border-violet-400 dark:text-violet-400 font-extrabold"
-                      : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
-                  }`}
-                >
-                  <Calendar className="w-4 h-4" />
-                  Listas de Presença ({presenceHistory.length})
-                </button>
-              </div>
-
               {/* Scrollable Modal Content */}
               <div className="p-6 overflow-y-auto space-y-5 flex-1">
-                {historyModalTab === "frequencia" ? (
-                  <>
-                    {/* Stats row */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className={`p-3.5 border rounded-xl ${styles.cardBg} ${styles.border} shadow-2xs`}>
-                        <p className={`text-[9px] font-bold uppercase tracking-wider ${styles.textMuted}`}>Cadastrados</p>
-                        <p className={`text-xl font-display font-extrabold mt-0.5 ${styles.textBold}`}>{registeredPlayers.length}</p>
-                        <div className="flex gap-2 text-[9px] font-medium mt-1 text-slate-400">
-                          <span>{registeredPlayers.filter(p => !p.isGuest).length} Regulares</span>
-                          <span>•</span>
-                          <span>{registeredPlayers.filter(p => p.isGuest).length} Convidados</span>
-                        </div>
-                      </div>
-                      <div className="p-3.5 border rounded-xl bg-indigo-50/10 dark:bg-violet-950/10 border-indigo-100/30 dark:border-violet-900/20 shadow-2xs">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-indigo-500 dark:text-violet-400">Presentes Hoje</p>
-                        <p className="text-xl font-display font-extrabold mt-0.5 text-indigo-600 dark:text-violet-400">
-                          {teamA.length + teamB.length + reserves.length}
-                        </p>
-                        <div className="flex gap-1 text-[9px] font-medium mt-1 text-slate-400">
-                          <span>{teamA.length + teamB.length} Em Jogo</span>
-                          <span>•</span>
-                          <span>{reserves.length} Reserva</span>
-                        </div>
-                      </div>
-                      <div className="p-3.5 border rounded-xl bg-amber-50/10 dark:bg-amber-950/10 border-amber-100/30 dark:border-amber-900/20 shadow-2xs">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Convidados</p>
-                        <p className="text-xl font-display font-extrabold mt-0.5 text-amber-600 dark:text-amber-400">
-                          {registeredPlayers.filter(p => p.isGuest).length}
-                        </p>
-                        <p className="text-[9px] text-slate-400 mt-1">
-                          {registeredPlayers.filter(p => p.isGuest && (teamA.some(x => x.id === p.id) || teamB.some(x => x.id === p.id) || reserves.some(x => x.id === p.id))).length} presentes
-                        </p>
-                      </div>
-                      <div className={`p-3.5 border rounded-xl ${styles.cardBg} ${styles.border} shadow-2xs`}>
-                        <p className={`text-[9px] font-bold uppercase tracking-wider ${styles.textMuted}`}>Ausentes</p>
-                        <p className={`text-xl font-display font-extrabold mt-0.5 ${styles.textBold}`}>
-                          {registeredPlayers.length - (teamA.length + teamB.length + reserves.length)}
-                        </p>
-                        <p className="text-[9px] text-slate-400 mt-1">Não escalados na partida</p>
-                      </div>
-                    </div>
+                {/* ARCHIVED LISTS OF PRESENCE */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className={`text-xs font-semibold ${styles.textMuted}`}>
+                      Mostrando {presenceHistory.length} encontros encerrados (arquivados)
+                    </p>
+                  </div>
 
-                    {/* Filters control bar */}
-                    <div className={`p-4 border rounded-xl ${styles.cardBg} ${styles.border} space-y-3.5`}>
-                      {/* Search Input */}
-                      <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
-                        <input
-                          type="text"
-                          placeholder="Buscar jogador no histórico..."
-                          className={`w-full pl-9 pr-3.5 py-2.5 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${styles.inputBg}`}
-                          value={historySearchQuery}
-                          onChange={(e) => setHistorySearchQuery(e.target.value)}
-                        />
-                      </div>
-
-                      {/* Filter Selectors */}
-                      <div className="flex flex-col sm:flex-row gap-4 sm:items-center justify-between">
-                        <div>
-                          <span className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
-                            Filtro de Presença
-                          </span>
-                          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[11px] font-semibold">
-                            <button
-                              type="button"
-                              onClick={() => setPresenceFilter("all")}
-                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                                presenceFilter === "all"
-                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
-                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
-                              }`}
-                            >
-                              Todos ({registeredPlayers.length})
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setPresenceFilter("present")}
-                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                                presenceFilter === "present"
-                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
-                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-355"
-                              }`}
-                            >
-                              Presentes ({teamA.length + teamB.length + reserves.length})
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setPresenceFilter("absent")}
-                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                                presenceFilter === "absent"
-                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
-                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-355"
-                              }`}
-                            >
-                              Ausentes ({registeredPlayers.length - (teamA.length + teamB.length + reserves.length)})
-                            </button>
-                          </div>
-                        </div>
-
-                        <div>
-                          <span className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
-                            Tipo de Cadastro
-                          </span>
-                          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[11px] font-semibold">
-                            <button
-                              type="button"
-                              onClick={() => setGuestFilter("all")}
-                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                                guestFilter === "all"
-                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
-                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
-                              }`}
-                            >
-                              Todos
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setGuestFilter("guests")}
-                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                                guestFilter === "guests"
-                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
-                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
-                              }`}
-                            >
-                              Convidados ({registeredPlayers.filter(p => p.isGuest).length})
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setGuestFilter("regulars")}
-                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                                guestFilter === "regulars"
-                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
-                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
-                              }`}
-                            >
-                              Regulares ({registeredPlayers.filter(p => !p.isGuest).length})
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Table/List View */}
-                    <div className="border border-slate-100 dark:border-slate-850 rounded-xl overflow-hidden shadow-2xs">
-                      <div className="max-h-[350px] overflow-y-auto">
-                        {(() => {
-                          const filtered = registeredPlayers.filter((player) => {
-                            const matchesSearch = player.name.toLowerCase().includes(historySearchQuery.toLowerCase());
-                            const isInActivePlay =
-                              teamA.some(p => p.id === player.id) ||
-                              teamB.some(p => p.id === player.id) ||
-                              reserves.some(p => p.id === player.id);
-                            const matchesPresence =
-                              presenceFilter === "all" ? true :
-                              presenceFilter === "present" ? isInActivePlay :
-                              !isInActivePlay;
-                            const matchesGuest =
-                              guestFilter === "all" ? true :
-                              guestFilter === "guests" ? player.isGuest === true :
-                              player.isGuest !== true;
-                            return matchesSearch && matchesPresence && matchesGuest;
-                          });
-
-                          if (filtered.length === 0) {
-                            return (
-                              <div className="text-center py-12 bg-white dark:bg-slate-900">
-                                <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                                <p className="text-xs font-semibold text-slate-400">Nenhum jogador encontrado.</p>
-                                <p className="text-[10px] text-slate-400 mt-0.5">Tente alterar os filtros de busca acima.</p>
-                              </div>
-                            );
-                          }
-
+                  <div className="max-h-[420px] overflow-y-auto space-y-3 pr-1">
+                    {presenceHistory.length > 0 ? (
+                      [...presenceHistory]
+                        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                        .map((list) => {
+                          const isExpanded = expandedDates.includes(list.dateString);
                           return (
-                            <table className="w-full text-left border-collapse bg-white dark:bg-slate-900">
-                              <thead>
-                                <tr className="bg-slate-50/80 dark:bg-slate-800/40 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-100 dark:border-slate-800">
-                                  <th className="px-5 py-3">Jogador</th>
-                                  <th className="px-4 py-3 text-center">Cadastro</th>
-                                  <th className="px-4 py-3 text-center">Status de Presença</th>
-                                  <th className="px-5 py-3 text-right">Ações</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
-                                {filtered.map((player) => {
-                                  const isInA = teamA.some(p => p.id === player.id);
-                                  const isInB = teamB.some(p => p.id === player.id);
-                                  const isInRes = reserves.some(p => p.id === player.id);
-                                  const isPresent = isInA || isInB || isInRes;
-
-                                  return (
-                                    <tr key={player.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-850/20 transition-all">
-                                      {/* Info */}
-                                      <td className="px-5 py-3.5">
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                          <span className={`p-1.5 rounded-lg shrink-0 ${
-                                            player.gender === Gender.MALE
-                                              ? "bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-400"
-                                              : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
-                                          }`}>
-                                            <User className="w-3.5 h-3.5" />
-                                          </span>
-                                          <span className={`font-semibold truncate ${styles.textBold}`}>
-                                            {player.name}
-                                          </span>
-                                        </div>
-                                      </td>
-
-                                      {/* Guest Type */}
-                                      <td className="px-4 py-3.5 text-center">
-                                        {player.isGuest ? (
-                                          <span className="text-[9px] bg-amber-50 text-amber-700 border border-amber-200/50 dark:bg-amber-955/30 dark:text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
-                                            Convidado
-                                          </span>
-                                        ) : (
-                                          <span className="text-[9px] bg-slate-50 text-slate-500 border border-slate-200/45 dark:bg-slate-800 dark:text-slate-400 font-bold px-2 py-0.5 rounded-full">
-                                            Membro Regular
-                                          </span>
-                                        )}
-                                      </td>
-
-                                      {/* Status badge */}
-                                      <td className="px-4 py-3.5 text-center">
-                                        {isInA ? (
-                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-200/50 dark:bg-violet-950/30 dark:text-violet-400 font-extrabold px-2 py-0.5 rounded-full">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-violet-500 animate-pulse"></span>
-                                            No Time A
-                                          </span>
-                                        ) : isInB ? (
-                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-teal-50 text-teal-700 border border-teal-200/50 dark:bg-emerald-950/30 dark:text-emerald-400 font-extrabold px-2 py-0.5 rounded-full">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 dark:bg-emerald-500 animate-pulse"></span>
-                                            No Time B
-                                          </span>
-                                        ) : isInRes ? (
-                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-amber-50 text-amber-700 border border-amber-200/50 dark:bg-amber-950/30 dark:text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                                            Na Reserva
-                                          </span>
-                                        ) : (
-                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-slate-50 text-slate-400 border border-slate-200/40 dark:bg-slate-800 dark:text-slate-500 font-bold px-2 py-0.5 rounded-full">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-650"></span>
-                                            Ausente
-                                          </span>
-                                        )}
-                                      </td>
-
-                                      {/* Quick Actions */}
-                                      <td className="px-5 py-3.5 text-right">
-                                        <div className="flex items-center justify-end gap-1.5">
-                                          {isPresent ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleRemoveFromActive(player.id, player.name)}
-                                              title="Marcar como Ausente (Remover do jogo)"
-                                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 p-1.5 rounded-lg transition-colors cursor-pointer"
-                                            >
-                                              <UserMinus className="w-3.5 h-3.5" />
-                                            </button>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleAddToActive(player)}
-                                              title="Marcar como Presente (Adicionar ao jogo)"
-                                              className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-violet-400 dark:bg-violet-950/30 dark:hover:bg-violet-950/60 p-1.5 rounded-lg transition-colors cursor-pointer"
-                                            >
-                                              <Plus className="w-3.5 h-3.5" />
-                                            </button>
-                                          )}
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setEditingPlayer(player);
-                                            }}
-                                            title="Editar cadastro do jogador"
-                                            className="text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 p-1.5 rounded-lg transition-colors cursor-pointer"
-                                          >
-                                            <Edit2 className="w-3.5 h-3.5" />
-                                          </button>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  /* TAB: ARCHIVED LISTS OF PRESENCE */
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className={`text-xs font-semibold ${styles.textMuted}`}>
-                        Mostrando {presenceHistory.length} encontros encerrados (arquivados)
-                      </p>
-                    </div>
-
-                    <div className="max-h-[380px] overflow-y-auto space-y-3 pr-1">
-                      {presenceHistory.length > 0 ? (
-                        [...presenceHistory]
-                          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
-                          .map((list) => {
-                            const isExpanded = expandedDates.includes(list.dateString);
-                            return (
-                              <div
-                                key={list.dateString}
-                                className={`border rounded-xl overflow-hidden transition-all duration-205 ${
-                                  isExpanded
-                                    ? "border-indigo-200 dark:border-indigo-900/50 shadow-xs"
-                                    : "border-slate-100 hover:border-slate-200 dark:border-slate-800 dark:hover:border-slate-750"
-                                } ${styles.cardBg}`}
-                              >
-                                {/* List Header item */}
-                                <div className="p-4 flex items-center justify-between gap-4 flex-wrap">
-                                  <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-indigo-50 dark:bg-violet-950/40 text-indigo-600 dark:text-violet-400 rounded-lg">
-                                      <Calendar className="w-4 h-4" />
-                                    </div>
-                                    <div>
-                                      <h4 className={`text-sm font-bold ${styles.textBold}`}>{list.dateString}</h4>
-                                      <p className={`text-[10px] ${styles.textMuted}`}>
-                                        Encontro encerrado às {new Date(list.timestamp || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                                      </p>
-                                    </div>
+                            <div
+                              key={list.dateString}
+                              className={`border rounded-xl overflow-hidden transition-all duration-205 ${
+                                isExpanded
+                                  ? "border-indigo-200 dark:border-indigo-900/50 shadow-xs"
+                                  : "border-slate-100 hover:border-slate-200 dark:border-slate-800 dark:hover:border-slate-750"
+                              } ${styles.cardBg}`}
+                            >
+                              {/* List Header item */}
+                              <div className="p-4 flex items-center justify-between gap-4 flex-wrap">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2 bg-indigo-50 dark:bg-violet-950/40 text-indigo-600 dark:text-violet-400 rounded-lg">
+                                    <Calendar className="w-4 h-4" />
                                   </div>
-
-                                  <div className="flex items-center gap-3 ml-auto sm:ml-0">
-                                    <span className="text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2.5 py-1 rounded-full">
-                                      {list.players.length} Presentes
-                                    </span>
-
-                                    {/* Action buttons */}
-                                    <div className="flex items-center gap-1.5">
-                                      {/* Expand/Collapse */}
-                                      <button
-                                        type="button"
-                                        onClick={() => toggleDateExpanded(list.dateString)}
-                                        className="p-1.5 text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-850 rounded-lg transition-colors cursor-pointer"
-                                        title={isExpanded ? "Ocultar jogadores" : "Ver jogadores presentes"}
-                                      >
-                                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                      </button>
-
-                                      {/* Delete List */}
-                                      <button
-                                        type="button"
-                                        onClick={() => setPresenceListToDelete(list)}
-                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer"
-                                        title="Excluir lista de presença"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
+                                  <div>
+                                    <h4 className={`text-sm font-bold ${styles.textBold}`}>{list.dateString}</h4>
+                                    <p className={`text-[10px] ${styles.textMuted}`}>
+                                      Encontro encerrado às {new Date(list.timestamp || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                    </p>
                                   </div>
                                 </div>
 
-                                {/* Expanded list of player names */}
-                                {isExpanded && (
-                                  <div className="px-5 pb-5 pt-1.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10">
-                                    <p className={`text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-2.5`}>
-                                      Jogadores presentes neste dia:
-                                    </p>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                                      {list.players.map((p) => (
-                                        <div
-                                          key={p.id}
-                                          className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between ${
-                                            theme === "escuro" ? "bg-slate-900/40 border-slate-850" : "bg-white border-slate-155"
-                                          }`}
-                                        >
-                                          <span className={`font-semibold truncate ${styles.textBold}`}>{p.name}</span>
-                                          {p.isGuest && (
-                                            <span className="text-[8px] bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 font-extrabold px-1 rounded-sm shrink-0">
-                                              C
-                                            </span>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
+                                <div className="flex items-center gap-3 ml-auto sm:ml-0">
+                                  <span className="text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2.5 py-1 rounded-full">
+                                    {list.players.length} Presentes
+                                  </span>
+
+                                  {/* Action buttons */}
+                                  <div className="flex items-center gap-1.5">
+                                    {/* Expand/Collapse */}
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleDateExpanded(list.dateString)}
+                                      className="p-1.5 text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-850 rounded-lg transition-colors cursor-pointer"
+                                      title={isExpanded ? "Ocultar jogadores" : "Ver jogadores presentes"}
+                                    >
+                                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                    </button>
+
+                                    {/* Delete List */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setPresenceListToDelete(list)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer"
+                                      title="Excluir lista de presença"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
                                   </div>
-                                )}
+                                </div>
                               </div>
-                            );
-                          })
-                      ) : (
-                        <div className="text-center py-16 border border-dashed rounded-2xl border-slate-200 dark:border-slate-800 text-slate-400">
-                          <Calendar className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-                          <p className="text-xs font-bold">Nenhuma lista de presença arquivada.</p>
-                          <p className="text-[10px] text-slate-400 mt-1 max-w-xs mx-auto">
-                            Ao encerrar as atividades de uma sessão (clicando no botão "Encerrar Atividades"), a lista de presentes será salva aqui.
-                          </p>
-                        </div>
-                      )}
-                    </div>
+
+                              {/* Expanded list of player names */}
+                              {isExpanded && (
+                                <div className="px-5 pb-5 pt-1.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10">
+                                  <p className={`text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-2.5`}>
+                                    Jogadores presentes neste dia:
+                                  </p>
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                    {list.players.map((p) => (
+                                      <div
+                                        key={p.id}
+                                        className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between ${
+                                          theme === "escuro" ? "bg-slate-900/40 border-slate-850" : "bg-white border-slate-155"
+                                        }`}
+                                      >
+                                        <span className={`font-semibold truncate ${styles.textBold}`}>{p.name}</span>
+                                        {p.isGuest && (
+                                          <span className="text-[8px] bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 font-extrabold px-1 rounded-sm shrink-0">
+                                            C
+                                          </span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                    ) : (
+                      <div className="text-center py-16 border border-dashed rounded-2xl border-slate-200 dark:border-slate-800 text-slate-400">
+                        <Calendar className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                        <p className="text-xs font-bold">Nenhuma lista de presença arquivada.</p>
+                        <p className="text-[10px] text-slate-400 mt-1 max-w-xs mx-auto">
+                          Ao encerrar as atividades de uma sessão (clicando no botão "Encerrar Atividades"), a lista de presentes será salva aqui.
+                        </p>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
 
               {/* Modal Footer */}
