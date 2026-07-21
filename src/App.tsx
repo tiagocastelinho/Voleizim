@@ -34,10 +34,14 @@ import {
   CloudOff,
   Copy,
   ExternalLink,
+  History,
+  Calendar,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./lib/firebase";
-import { Player, Gender, reassignHierarchyValues, mixTeams } from "./types";
+import { Player, Gender, reassignHierarchyValues, mixTeams, PresencePlayer, PresenceList } from "./types";
 
 // Design Palette configurations for Claro and Escuro themes
 const themeStyles = {
@@ -111,6 +115,30 @@ const themeStyles = {
   },
 };
 
+// Helper function to recursively remove undefined values from Firestore payloads
+function sanitizeFirestoreData<T>(obj: T): T {
+  if (obj === undefined) {
+    return null as any;
+  }
+  if (obj === null) {
+    return null as any;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeFirestoreData) as any;
+  }
+  if (typeof obj === "object") {
+    const newObj: any = {};
+    for (const key of Object.keys(obj as any)) {
+      const val = (obj as any)[key];
+      if (val !== undefined) {
+        newObj[key] = sanitizeFirestoreData(val);
+      }
+    }
+    return newObj;
+  }
+  return obj;
+}
+
 export default function App() {
   // Online Synchronization state and refs
   const [roomCode, setRoomCode] = useState<string>(() => {
@@ -157,7 +185,7 @@ export default function App() {
   const [registeredPlayers, setRegisteredPlayers] = useState<Player[]>([]);
 
   // State for Undo History
-  const [history, setHistory] = useState<{ teamA: Player[]; teamB: Player[]; reserves: Player[] }[]>([]);
+  const [history, setHistory] = useState<{ teamA: Player[]; teamB: Player[]; reserves: Player[]; currentDayPresence: PresencePlayer[] }[]>([]);
 
   // Tab navigation inside panel: 'cadastro' or 'acoes' (Controle & Partida is default as requested!)
   const [activeTab, setActiveTab] = useState<"cadastro" | "acoes">("acoes");
@@ -183,6 +211,22 @@ export default function App() {
   // State for Registration Form
   const [newPlayerName, setNewPlayerName] = useState("");
   const [newPlayerGender, setNewPlayerGender] = useState<Gender>(Gender.MALE);
+  const [newPlayerIsGuest, setNewPlayerIsGuest] = useState<boolean>(false);
+
+  // Presence History Modal state
+  const [isPresenceHistoryOpen, setIsPresenceHistoryOpen] = useState(false);
+  const [historySearchQuery, setHistorySearchQuery] = useState("");
+  const [presenceFilter, setPresenceFilter] = useState<"all" | "present" | "absent">("all");
+  const [guestFilter, setGuestFilter] = useState<"all" | "guests" | "regulars">("all");
+
+  // Presence System States
+  const [currentDayPresence, setCurrentDayPresence] = useState<PresencePlayer[]>([]);
+  const [presenceHistory, setPresenceHistory] = useState<PresenceList[]>([]);
+  const [frequencyPeriod, setFrequencyPeriod] = useState<number>(7);
+  const [selectedPlayerPresenceDetails, setSelectedPlayerPresenceDetails] = useState<{ player: Player; dates: { dateString: string; timestamp: number }[] } | null>(null);
+  const [presenceListToDelete, setPresenceListToDelete] = useState<PresenceList | null>(null);
+  const [historyModalTab, setHistoryModalTab] = useState<"frequencia" | "arquivos">("frequencia");
+  const [expandedDates, setExpandedDates] = useState<string[]>([]);
 
   // State for Editing Player
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
@@ -209,6 +253,9 @@ export default function App() {
     const savedWinsPlayers = localStorage.getItem("rodizio_consecutiveWinsPlayers");
     const savedDismissedWins = localStorage.getItem("rodizio_dismissedWinsCount");
     const savedPlayersPerTeam = localStorage.getItem("rodizio_playersPerTeam");
+    const savedCurrentDayPresence = localStorage.getItem("rodizio_currentDayPresence");
+    const savedPresenceHistory = localStorage.getItem("rodizio_presenceHistory");
+    const savedFrequencyPeriod = localStorage.getItem("rodizio_frequencyPeriod");
 
     if (savedA) setTeamA(JSON.parse(savedA));
     if (savedB) setTeamB(JSON.parse(savedB));
@@ -225,6 +272,9 @@ export default function App() {
     if (savedWinsPlayers) setConsecutiveWinsPlayers(JSON.parse(savedWinsPlayers));
     if (savedDismissedWins) setDismissedWinsCount(parseInt(savedDismissedWins, 10));
     if (savedPlayersPerTeam) setPlayersPerTeam(parseInt(savedPlayersPerTeam, 10));
+    if (savedCurrentDayPresence) setCurrentDayPresence(JSON.parse(savedCurrentDayPresence));
+    if (savedPresenceHistory) setPresenceHistory(JSON.parse(savedPresenceHistory));
+    if (savedFrequencyPeriod) setFrequencyPeriod(parseInt(savedFrequencyPeriod, 10));
   }, []);
 
   // Save active rosters and winner to LocalStorage whenever they change
@@ -234,6 +284,19 @@ export default function App() {
     localStorage.setItem("rodizio_reserves", JSON.stringify(reserves));
     localStorage.setItem("rodizio_winnerTeam", winnerTeam);
   }, [teamA, teamB, reserves, winnerTeam]);
+
+  // Save presence system states to LocalStorage
+  useEffect(() => {
+    localStorage.setItem("rodizio_currentDayPresence", JSON.stringify(currentDayPresence));
+  }, [currentDayPresence]);
+
+  useEffect(() => {
+    localStorage.setItem("rodizio_presenceHistory", JSON.stringify(presenceHistory));
+  }, [presenceHistory]);
+
+  useEffect(() => {
+    localStorage.setItem("rodizio_frequencyPeriod", frequencyPeriod.toString());
+  }, [frequencyPeriod]);
 
   // Save registered database to LocalStorage whenever it changes
   useEffect(() => {
@@ -290,6 +353,9 @@ export default function App() {
           theme: data.theme || "claro",
           unlockedPlayerIds: data.unlockedPlayerIds || [],
           playersPerTeam: data.playersPerTeam || 6,
+          currentDayPresence: data.currentDayPresence || [],
+          presenceHistory: data.presenceHistory || [],
+          frequencyPeriod: data.frequencyPeriod || 7,
         });
 
         if (incomingSerialized !== lastServerDataRef.current) {
@@ -308,6 +374,9 @@ export default function App() {
           if (data.theme !== undefined) setTheme(data.theme);
           if (data.unlockedPlayerIds !== undefined) setUnlockedPlayerIds(data.unlockedPlayerIds);
           if (data.playersPerTeam !== undefined) setPlayersPerTeam(data.playersPerTeam);
+          if (data.currentDayPresence !== undefined) setCurrentDayPresence(data.currentDayPresence);
+          if (data.presenceHistory !== undefined) setPresenceHistory(data.presenceHistory);
+          if (data.frequencyPeriod !== undefined) setFrequencyPeriod(data.frequencyPeriod);
           
           lastServerDataRef.current = incomingSerialized;
           
@@ -333,12 +402,15 @@ export default function App() {
           theme,
           unlockedPlayerIds,
           playersPerTeam,
+          currentDayPresence,
+          presenceHistory,
+          frequencyPeriod,
         };
         const serialized = JSON.stringify(localState);
         lastServerDataRef.current = serialized;
         
         setDoc(docRef, {
-          ...localState,
+          ...sanitizeFirestoreData(localState),
           updatedAt: serverTimestamp()
         })
           .then(() => {
@@ -377,6 +449,9 @@ export default function App() {
       theme,
       unlockedPlayerIds,
       playersPerTeam,
+      currentDayPresence,
+      presenceHistory,
+      frequencyPeriod,
     };
 
     const serialized = JSON.stringify(localState);
@@ -387,7 +462,7 @@ export default function App() {
     
     const timeoutId = setTimeout(() => {
       setDoc(docRef, {
-        ...localState,
+        ...sanitizeFirestoreData(localState),
         updatedAt: serverTimestamp()
       }, { merge: true })
         .then(() => {
@@ -415,6 +490,9 @@ export default function App() {
     theme,
     unlockedPlayerIds,
     playersPerTeam,
+    currentDayPresence,
+    presenceHistory,
+    frequencyPeriod,
     roomCode
   ]);
 
@@ -434,11 +512,12 @@ export default function App() {
   };
 
   // Push current rosters to history stack for Undo
-  const pushToHistory = (currA = teamA, currB = teamB, currRes = reserves) => {
+  const pushToHistory = (currA = teamA, currB = teamB, currRes = reserves, currPres = currentDayPresence) => {
     const stateCopy = {
       teamA: JSON.parse(JSON.stringify(currA)),
       teamB: JSON.parse(JSON.stringify(currB)),
       reserves: JSON.parse(JSON.stringify(currRes)),
+      currentDayPresence: JSON.parse(JSON.stringify(currPres)),
     };
     setHistory((prev) => [...prev.slice(-29), stateCopy]); // Limit history to 30 elements
   };
@@ -465,6 +544,9 @@ export default function App() {
     setTeamA(previousState.teamA.map(syncWithRegistered));
     setTeamB(previousState.teamB.map(syncWithRegistered));
     setReserves(previousState.reserves.map(syncWithRegistered));
+    if (previousState.currentDayPresence) {
+      setCurrentDayPresence(previousState.currentDayPresence);
+    }
     setHistory(newHistory);
 
     triggerToast("Ação anterior desfeita com sucesso!", "success");
@@ -536,14 +618,117 @@ export default function App() {
 
   // Reset only the active play lists (Teams A, B, and reserves) with dual confirmation
   const handleEndActivities = () => {
+    if (currentDayPresence.length > 0) {
+      const today = new Date();
+      const dateString = today.toLocaleDateString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+      });
+
+      const existingIndex = presenceHistory.findIndex(list => list.dateString === dateString);
+      let updatedHistory = [...presenceHistory];
+
+      if (existingIndex !== -1) {
+        const existingList = presenceHistory[existingIndex];
+        const mergedPlayers = [...existingList.players];
+        currentDayPresence.forEach(p => {
+          if (!mergedPlayers.some(mp => mp.id === p.id)) {
+            mergedPlayers.push(p);
+          }
+        });
+        updatedHistory[existingIndex] = {
+          ...existingList,
+          players: mergedPlayers
+        };
+      } else {
+        const newList: PresenceList = {
+          id: `presence-${Date.now()}`,
+          dateString,
+          timestamp: today.getTime(),
+          players: currentDayPresence
+        };
+        updatedHistory = [newList, ...updatedHistory];
+      }
+
+      // Limit history to 25 lists
+      if (updatedHistory.length > 25) {
+        updatedHistory = updatedHistory.slice(0, 25);
+      }
+
+      setPresenceHistory(updatedHistory);
+    }
+
     setTeamA([]);
     setTeamB([]);
     setReserves([]);
     setHistory([]);
+    setCurrentDayPresence([]);
     setSwappingPlayerId(null);
     setShowEndActivitiesConfirm(false);
     setShowEndActivitiesConfirm2(false);
-    triggerToast("Atividades encerradas. Os times e reservas foram limpos.", "info");
+    triggerToast("Atividades encerradas. Os times e reservas foram limpos, e a presença foi arquivada.", "info");
+  };
+
+  const handleDeletePresenceList = (dateString: string) => {
+    const updated = presenceHistory.filter((list) => list.dateString !== dateString);
+    setPresenceHistory(updated);
+    setPresenceListToDelete(null);
+    triggerToast(`Lista de presença de ${dateString} foi excluída.`, "success");
+  };
+
+  const toggleDateExpanded = (dateStr: string) => {
+    setExpandedDates(prev =>
+      prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]
+    );
+  };
+
+  // Get score of a player based on selected period
+  const getPlayerScore = (playerId: string) => {
+    const now = Date.now();
+    const limitMs = frequencyPeriod * 24 * 60 * 60 * 1000;
+
+    const validLists = presenceHistory.filter((list) => {
+      const listTime = list.timestamp || Date.now();
+      return (now - listTime) <= limitMs;
+    });
+
+    let count = 0;
+    validLists.forEach((list) => {
+      if (list.players.some((p) => p.id === playerId)) {
+        count++;
+      }
+    });
+
+    return count;
+  };
+
+  const getScoreStyles = (player: Player) => {
+    if (player.isGuest) {
+      return "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-450 border border-slate-200/20";
+    }
+    const score = getPlayerScore(player.id);
+    if (score === 0) {
+      return "bg-rose-50 text-rose-600 dark:bg-rose-950/25 dark:text-rose-450 border border-rose-200/30";
+    }
+    if (score < 3) {
+      return "bg-orange-50 text-orange-650 dark:bg-orange-950/25 dark:text-orange-400 border border-orange-200/30";
+    }
+    if (score === 3) {
+      return "bg-amber-50 text-amber-600 dark:bg-amber-950/25 dark:text-amber-450 border border-amber-200/30";
+    }
+    return "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/25 dark:text-emerald-400 border border-emerald-200/30";
+  };
+
+  const handleShowPlayerPresenceDetails = (player: Player) => {
+    const dates = presenceHistory
+      .filter((list) => list.players.some((p) => p.id === player.id))
+      .map((list) => ({
+        dateString: list.dateString,
+        timestamp: list.timestamp || Date.now(),
+      }))
+      .sort((a, b) => b.timestamp - a.timestamp); // Sort newest first
+    setSelectedPlayerPresenceDetails({ player, dates });
   };
 
   // Add new player to registered roster (Database only) - alphabetical
@@ -569,6 +754,7 @@ export default function App() {
       name: trimmedName,
       gender: newPlayerGender,
       hierarchyValue: 0,
+      isGuest: newPlayerIsGuest,
     };
 
     const updatedRegistered = [...registeredPlayers, newPlayer].sort((a, b) =>
@@ -577,6 +763,7 @@ export default function App() {
 
     setRegisteredPlayers(updatedRegistered);
     setNewPlayerName("");
+    setNewPlayerIsGuest(false);
     triggerToast(`"${newPlayer.name}" cadastrado com sucesso na lista de cadastro!`, "success");
   };
 
@@ -735,13 +922,13 @@ export default function App() {
 
     // Update master registered list
     setRegisteredPlayers((prev) =>
-      prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p))
+      prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender, isGuest: editingPlayer.isGuest } : p))
     );
 
     // Update active lists while preserving hierarchy value
-    setTeamA((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p)));
-    setTeamB((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p)));
-    setReserves((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender } : p)));
+    setTeamA((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender, isGuest: editingPlayer.isGuest } : p)));
+    setTeamB((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender, isGuest: editingPlayer.isGuest } : p)));
+    setReserves((prev) => prev.map((p) => (p.id === editingPlayer.id ? { ...p, name: nameTrimmed, gender: editingPlayer.gender, isGuest: editingPlayer.isGuest } : p)));
 
     setEditingPlayer(null);
     triggerToast("Cadastro do jogador atualizado com sucesso!", "success");
@@ -766,6 +953,23 @@ export default function App() {
 
     // Save history before modifying rosters
     pushToHistory();
+
+    // Register presence for the day of players who played this match
+    const playersInMatch: PresencePlayer[] = [...teamA, ...teamB].map(p => ({
+      id: p.id,
+      name: p.name,
+      gender: p.gender,
+      isGuest: p.isGuest
+    }));
+    setCurrentDayPresence(prev => {
+      const merged = [...prev];
+      playersInMatch.forEach(p => {
+        if (!merged.some(m => m.id === p.id)) {
+          merged.push(p);
+        }
+      });
+      return merged;
+    });
 
     const losingTeam = winner === "A" ? teamB : teamA;
     const winningTeam = winner === "A" ? teamA : teamB;
@@ -1584,6 +1788,36 @@ export default function App() {
                       </div>
                     </div>
 
+                    <div>
+                      <span className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
+                        Convidado?
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            newPlayerIsGuest === true
+                              ? "bg-amber-50 border-amber-205 text-amber-800 shadow-xs dark:bg-amber-950/40 dark:border-amber-850 dark:text-amber-300 font-bold"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850"
+                          }`}
+                          onClick={() => setNewPlayerIsGuest(true)}
+                        >
+                          Sim
+                        </button>
+                        <button
+                          type="button"
+                          className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                            newPlayerIsGuest === false
+                              ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs dark:bg-indigo-950/40 dark:border-indigo-850 dark:text-indigo-300 font-bold"
+                              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-850"
+                          }`}
+                          onClick={() => setNewPlayerIsGuest(false)}
+                        >
+                          Não
+                        </button>
+                      </div>
+                    </div>
+
                     <button
                       type="submit"
                       className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 font-bold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
@@ -1600,14 +1834,31 @@ export default function App() {
               <div className="lg:col-span-8 space-y-6">
                 
                 <div className={`rounded-2xl border p-6 shadow-xs space-y-4 ${styles.cardBg} ${styles.border}`}>
-                  <div className="flex items-center justify-between pb-1">
-                    <h3 className={`font-display font-semibold text-sm ${styles.cardTitle} flex items-center gap-2`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-100 dark:border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-emerald-500" />
-                      Jogadores Cadastrados
-                    </h3>
-                    <span className={`text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 px-2 py-0.5 rounded-md font-bold uppercase`}>
-                      A-Z ({registeredPlayers.length})
-                    </span>
+                      <h3 className={`font-display font-semibold text-sm ${styles.cardTitle}`}>
+                        Jogadores Cadastrados
+                      </h3>
+                      <span className={`text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 px-2 py-0.5 rounded-md font-bold`}>
+                        {registeredPlayers.length}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Período Score:</span>
+                      <select
+                        value={frequencyPeriod}
+                        onChange={(e) => setFrequencyPeriod(parseInt(e.target.value, 10))}
+                        className={`text-xs px-2.5 py-1.5 border rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-transparent text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-850 cursor-pointer`}
+                      >
+                        <option value={3} className="bg-white dark:bg-slate-900">3 dias</option>
+                        <option value={7} className="bg-white dark:bg-slate-900">7 dias</option>
+                        <option value={15} className="bg-white dark:bg-slate-900">15 dias</option>
+                        <option value={30} className="bg-white dark:bg-slate-900">30 dias</option>
+                        <option value={45} className="bg-white dark:bg-slate-900">45 dias</option>
+                      </select>
+                    </div>
                   </div>
 
                   {/* Search Input */}
@@ -1664,9 +1915,24 @@ export default function App() {
                                   <User className="w-3.5 h-3.5" />
                                 </span>
                                 <div className="min-w-0">
-                                  <p className={`text-xs font-bold truncate leading-snug ${styles.textBold}`}>
-                                    {player.name}
-                                  </p>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <p className={`text-xs font-bold truncate leading-snug ${styles.textBold}`}>
+                                      {player.name}
+                                    </p>
+                                    {player.isGuest && (
+                                      <span className="text-[9px] bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 font-bold px-1.5 py-0.5 rounded-md border border-slate-200/40 dark:border-slate-700/40">
+                                        Convidado
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleShowPlayerPresenceDetails(player)}
+                                      className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold cursor-pointer hover:opacity-80 transition-all ${getScoreStyles(player)} flex items-center gap-1`}
+                                      title="Clique para ver os dias de presença"
+                                    >
+                                      <span>Score: {player.isGuest ? "—" : getPlayerScore(player.id)}</span>
+                                    </button>
+                                  </div>
                                   {isEscalado && (
                                     <span className="text-[9px] font-semibold text-indigo-600 dark:text-violet-400 flex items-center gap-1 mt-0.5 animate-pulse">
                                       <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-violet-500"></span>
@@ -1760,22 +2026,21 @@ export default function App() {
                 </ul>
               </div>
 
-              {/* Limpar Tudo dangerous action at the bottom */}
-              {registeredPlayers.length > 0 && (
-                <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex items-center justify-between`}>
-                  <div className="space-y-0.5">
-                    <p className={`text-[11px] font-bold uppercase tracking-wider text-rose-500`}>Ação Perigosa</p>
-                    <p className={`text-[10px] ${styles.textMuted}`}>Zerar totalmente o banco de dados</p>
-                  </div>
-                  <button
-                    onClick={() => setShowClearConfirm(true)}
-                    className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold flex items-center gap-1.5 py-2 px-3 rounded-xl transition-all cursor-pointer dark:bg-rose-950/20 dark:text-rose-400 dark:hover:bg-rose-950/40 border border-rose-500/10"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Limpar Tudo
-                  </button>
+              {/* Histórico de Presença button at the bottom */}
+              <div className={`rounded-2xl border p-5 transition-all duration-200 ${styles.cardBg} ${styles.border} flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+                <div className="space-y-0.5">
+                  <p className={`text-[11px] font-bold uppercase tracking-wider ${theme === "escuro" ? "text-violet-400" : "text-indigo-650"}`}>Histórico & Frequência</p>
+                  <p className={`text-[10px] ${styles.textMuted}`}>Visualize o painel completo de presença e convidados do dia</p>
                 </div>
-              )}
+                <button
+                  type="button"
+                  onClick={() => setIsPresenceHistoryOpen(true)}
+                  className="text-xs bg-indigo-600 hover:bg-indigo-550 text-white font-bold flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-sm dark:bg-violet-600 dark:hover:bg-violet-500 border border-transparent"
+                >
+                  <History className="w-3.5 h-3.5" />
+                  Histórico de Presença
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1850,6 +2115,36 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                <div>
+                  <span className={`block text-xs font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
+                    Convidado?
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className={`py-2 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        editingPlayer.isGuest === true
+                          ? "bg-amber-50 border-amber-205 text-amber-800 shadow-xs dark:bg-amber-950/40 dark:border-amber-850 dark:text-amber-300 font-bold"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-450"
+                      }`}
+                      onClick={() => setEditingPlayer({ ...editingPlayer, isGuest: true })}
+                    >
+                      Sim
+                    </button>
+                    <button
+                      type="button"
+                      className={`py-2 px-3 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        editingPlayer.isGuest !== true
+                          ? "bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs dark:bg-indigo-950/40 dark:border-indigo-850 dark:text-indigo-300 font-bold"
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-450"
+                      }`}
+                      onClick={() => setEditingPlayer({ ...editingPlayer, isGuest: false })}
+                    >
+                      Não
+                    </button>
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-2.5 mt-6 justify-end">
@@ -1867,6 +2162,586 @@ export default function App() {
                 >
                   <Save className="w-4 h-4" />
                   Salvar Alterações
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* PLAYER PRESENCE DETAILS MODAL */}
+      <AnimatePresence>
+        {selectedPlayerPresenceDetails && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className={`rounded-2xl shadow-xl max-w-md w-full p-6 border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
+            >
+              <div className="flex items-center justify-between mb-4 border-b pb-3 border-slate-100 dark:border-slate-800">
+                <div className="min-w-0">
+                  <h3 className={`font-display font-semibold text-base truncate ${styles.textBold}`}>
+                    Histórico de Presença
+                  </h3>
+                  <p className={`text-xs ${styles.textMuted} truncate mt-0.5`}>
+                    {selectedPlayerPresenceDetails.player.name}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlayerPresenceDetails(null)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Meta Summary stats */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className={`p-3 rounded-xl border text-center ${theme === "escuro" ? "bg-slate-900/50 border-slate-800" : "bg-slate-50/50 border-slate-100"}`}>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider ${styles.textMuted}`}>Score ({frequencyPeriod}d)</p>
+                    <p className={`text-2xl font-black mt-1 ${
+                      selectedPlayerPresenceDetails.player.isGuest
+                        ? "text-slate-500"
+                        : getPlayerScore(selectedPlayerPresenceDetails.player.id) >= 4
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : getPlayerScore(selectedPlayerPresenceDetails.player.id) === 3
+                        ? "text-amber-500"
+                        : getPlayerScore(selectedPlayerPresenceDetails.player.id) === 0
+                        ? "text-rose-600 dark:text-rose-400"
+                        : "text-orange-500"
+                    }`}>
+                      {selectedPlayerPresenceDetails.player.isGuest ? "—" : getPlayerScore(selectedPlayerPresenceDetails.player.id)}
+                    </p>
+                  </div>
+                  <div className={`p-3 rounded-xl border text-center ${theme === "escuro" ? "bg-slate-900/50 border-slate-800" : "bg-slate-50/50 border-slate-100"}`}>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider ${styles.textMuted}`}>Tipo de Membro</p>
+                    <p className={`text-xs font-bold mt-2.5 ${selectedPlayerPresenceDetails.player.isGuest ? "text-amber-600 dark:text-amber-400" : "text-indigo-600 dark:text-violet-400"}`}>
+                      {selectedPlayerPresenceDetails.player.isGuest ? "Convidado" : "Regular"}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className={`text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-2`}>
+                    Datas de Presença Registradas ({selectedPlayerPresenceDetails.dates.length})
+                  </h4>
+                  <div className="max-h-52 overflow-y-auto pr-1 space-y-1.5 custom-scrollbar">
+                    {selectedPlayerPresenceDetails.dates.length > 0 ? (
+                      selectedPlayerPresenceDetails.dates.map((d, idx) => (
+                        <div
+                          key={idx}
+                          className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
+                            theme === "escuro" ? "bg-slate-900/30 border-slate-850" : "bg-slate-50/30 border-slate-100"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+                            <span className={`font-semibold ${styles.textBold}`}>{d.dateString}</span>
+                          </div>
+                          <span className={`text-[10px] font-mono ${styles.textMuted}`}>
+                            {new Date(d.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-6 border border-dashed rounded-xl border-slate-200 dark:border-slate-800 text-slate-400">
+                        <AlertCircle className="w-5 h-5 text-slate-300 mx-auto mb-1" />
+                        <p className="text-[11px] font-semibold">Nenhuma presença recente encontrada.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 text-right">
+                <button
+                  type="button"
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
+                  onClick={() => setSelectedPlayerPresenceDetails(null)}
+                >
+                  Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* PRESENCE HISTORY MODAL DIALOG */}
+      <AnimatePresence>
+        {isPresenceHistoryOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className={`rounded-2xl shadow-xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-indigo-50 dark:bg-violet-950/40 text-indigo-600 dark:text-violet-400 rounded-xl">
+                    <History className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className={`font-display font-semibold text-base ${styles.textBold}`}>
+                      Histórico de Presença & Cadastro
+                    </h3>
+                    <p className={`text-[10px] font-medium ${styles.textMuted}`}>
+                      Frequência atual dos jogadores e gestão de convidados
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPresenceHistoryOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Segmented Tab Bar */}
+              <div className="flex border-b border-slate-100 dark:border-slate-850 px-6 shrink-0 bg-slate-50/50 dark:bg-slate-900/20">
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalTab("frequencia")}
+                  className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                    historyModalTab === "frequencia"
+                      ? "border-indigo-600 text-indigo-600 dark:border-violet-400 dark:text-violet-400 font-extrabold"
+                      : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  Frequência & Scores
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryModalTab("arquivos")}
+                  className={`py-3 px-4 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                    historyModalTab === "arquivos"
+                      ? "border-indigo-600 text-indigo-600 dark:border-violet-400 dark:text-violet-400 font-extrabold"
+                      : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350"
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" />
+                  Listas de Presença ({presenceHistory.length})
+                </button>
+              </div>
+
+              {/* Scrollable Modal Content */}
+              <div className="p-6 overflow-y-auto space-y-5 flex-1">
+                {historyModalTab === "frequencia" ? (
+                  <>
+                    {/* Stats row */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className={`p-3.5 border rounded-xl ${styles.cardBg} ${styles.border} shadow-2xs`}>
+                        <p className={`text-[9px] font-bold uppercase tracking-wider ${styles.textMuted}`}>Cadastrados</p>
+                        <p className={`text-xl font-display font-extrabold mt-0.5 ${styles.textBold}`}>{registeredPlayers.length}</p>
+                        <div className="flex gap-2 text-[9px] font-medium mt-1 text-slate-400">
+                          <span>{registeredPlayers.filter(p => !p.isGuest).length} Regulares</span>
+                          <span>•</span>
+                          <span>{registeredPlayers.filter(p => p.isGuest).length} Convidados</span>
+                        </div>
+                      </div>
+                      <div className="p-3.5 border rounded-xl bg-indigo-50/10 dark:bg-violet-950/10 border-indigo-100/30 dark:border-violet-900/20 shadow-2xs">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-indigo-500 dark:text-violet-400">Presentes Hoje</p>
+                        <p className="text-xl font-display font-extrabold mt-0.5 text-indigo-600 dark:text-violet-400">
+                          {teamA.length + teamB.length + reserves.length}
+                        </p>
+                        <div className="flex gap-1 text-[9px] font-medium mt-1 text-slate-400">
+                          <span>{teamA.length + teamB.length} Em Jogo</span>
+                          <span>•</span>
+                          <span>{reserves.length} Reserva</span>
+                        </div>
+                      </div>
+                      <div className="p-3.5 border rounded-xl bg-amber-50/10 dark:bg-amber-950/10 border-amber-100/30 dark:border-amber-900/20 shadow-2xs">
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Convidados</p>
+                        <p className="text-xl font-display font-extrabold mt-0.5 text-amber-600 dark:text-amber-400">
+                          {registeredPlayers.filter(p => p.isGuest).length}
+                        </p>
+                        <p className="text-[9px] text-slate-400 mt-1">
+                          {registeredPlayers.filter(p => p.isGuest && (teamA.some(x => x.id === p.id) || teamB.some(x => x.id === p.id) || reserves.some(x => x.id === p.id))).length} presentes
+                        </p>
+                      </div>
+                      <div className={`p-3.5 border rounded-xl ${styles.cardBg} ${styles.border} shadow-2xs`}>
+                        <p className={`text-[9px] font-bold uppercase tracking-wider ${styles.textMuted}`}>Ausentes</p>
+                        <p className={`text-xl font-display font-extrabold mt-0.5 ${styles.textBold}`}>
+                          {registeredPlayers.length - (teamA.length + teamB.length + reserves.length)}
+                        </p>
+                        <p className="text-[9px] text-slate-400 mt-1">Não escalados na partida</p>
+                      </div>
+                    </div>
+
+                    {/* Filters control bar */}
+                    <div className={`p-4 border rounded-xl ${styles.cardBg} ${styles.border} space-y-3.5`}>
+                      {/* Search Input */}
+                      <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Buscar jogador no histórico..."
+                          className={`w-full pl-9 pr-3.5 py-2.5 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${styles.inputBg}`}
+                          value={historySearchQuery}
+                          onChange={(e) => setHistorySearchQuery(e.target.value)}
+                        />
+                      </div>
+
+                      {/* Filter Selectors */}
+                      <div className="flex flex-col sm:flex-row gap-4 sm:items-center justify-between">
+                        <div>
+                          <span className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
+                            Filtro de Presença
+                          </span>
+                          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[11px] font-semibold">
+                            <button
+                              type="button"
+                              onClick={() => setPresenceFilter("all")}
+                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                                presenceFilter === "all"
+                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
+                              }`}
+                            >
+                              Todos ({registeredPlayers.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPresenceFilter("present")}
+                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                                presenceFilter === "present"
+                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-355"
+                              }`}
+                            >
+                              Presentes ({teamA.length + teamB.length + reserves.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPresenceFilter("absent")}
+                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                                presenceFilter === "absent"
+                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-355"
+                              }`}
+                            >
+                              Ausentes ({registeredPlayers.length - (teamA.length + teamB.length + reserves.length)})
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className={`block text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-1.5`}>
+                            Tipo de Cadastro
+                          </span>
+                          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[11px] font-semibold">
+                            <button
+                              type="button"
+                              onClick={() => setGuestFilter("all")}
+                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                                guestFilter === "all"
+                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
+                              }`}
+                            >
+                              Todos
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGuestFilter("guests")}
+                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                                guestFilter === "guests"
+                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
+                              }`}
+                            >
+                              Convidados ({registeredPlayers.filter(p => p.isGuest).length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGuestFilter("regulars")}
+                              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                                guestFilter === "regulars"
+                                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-350"
+                              }`}
+                            >
+                              Regulares ({registeredPlayers.filter(p => !p.isGuest).length})
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Table/List View */}
+                    <div className="border border-slate-100 dark:border-slate-850 rounded-xl overflow-hidden shadow-2xs">
+                      <div className="max-h-[350px] overflow-y-auto">
+                        {(() => {
+                          const filtered = registeredPlayers.filter((player) => {
+                            const matchesSearch = player.name.toLowerCase().includes(historySearchQuery.toLowerCase());
+                            const isInActivePlay =
+                              teamA.some(p => p.id === player.id) ||
+                              teamB.some(p => p.id === player.id) ||
+                              reserves.some(p => p.id === player.id);
+                            const matchesPresence =
+                              presenceFilter === "all" ? true :
+                              presenceFilter === "present" ? isInActivePlay :
+                              !isInActivePlay;
+                            const matchesGuest =
+                              guestFilter === "all" ? true :
+                              guestFilter === "guests" ? player.isGuest === true :
+                              player.isGuest !== true;
+                            return matchesSearch && matchesPresence && matchesGuest;
+                          });
+
+                          if (filtered.length === 0) {
+                            return (
+                              <div className="text-center py-12 bg-white dark:bg-slate-900">
+                                <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                                <p className="text-xs font-semibold text-slate-400">Nenhum jogador encontrado.</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5">Tente alterar os filtros de busca acima.</p>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <table className="w-full text-left border-collapse bg-white dark:bg-slate-900">
+                              <thead>
+                                <tr className="bg-slate-50/80 dark:bg-slate-800/40 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                                  <th className="px-5 py-3">Jogador</th>
+                                  <th className="px-4 py-3 text-center">Cadastro</th>
+                                  <th className="px-4 py-3 text-center">Status de Presença</th>
+                                  <th className="px-5 py-3 text-right">Ações</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80 text-xs">
+                                {filtered.map((player) => {
+                                  const isInA = teamA.some(p => p.id === player.id);
+                                  const isInB = teamB.some(p => p.id === player.id);
+                                  const isInRes = reserves.some(p => p.id === player.id);
+                                  const isPresent = isInA || isInB || isInRes;
+
+                                  return (
+                                    <tr key={player.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-850/20 transition-all">
+                                      {/* Info */}
+                                      <td className="px-5 py-3.5">
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                          <span className={`p-1.5 rounded-lg shrink-0 ${
+                                            player.gender === Gender.MALE
+                                              ? "bg-sky-50 text-sky-600 dark:bg-sky-950/30 dark:text-sky-400"
+                                              : "bg-rose-50 text-rose-600 dark:bg-rose-950/30 dark:text-rose-400"
+                                          }`}>
+                                            <User className="w-3.5 h-3.5" />
+                                          </span>
+                                          <span className={`font-semibold truncate ${styles.textBold}`}>
+                                            {player.name}
+                                          </span>
+                                        </div>
+                                      </td>
+
+                                      {/* Guest Type */}
+                                      <td className="px-4 py-3.5 text-center">
+                                        {player.isGuest ? (
+                                          <span className="text-[9px] bg-amber-50 text-amber-700 border border-amber-200/50 dark:bg-amber-955/30 dark:text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
+                                            Convidado
+                                          </span>
+                                        ) : (
+                                          <span className="text-[9px] bg-slate-50 text-slate-500 border border-slate-200/45 dark:bg-slate-800 dark:text-slate-400 font-bold px-2 py-0.5 rounded-full">
+                                            Membro Regular
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      {/* Status badge */}
+                                      <td className="px-4 py-3.5 text-center">
+                                        {isInA ? (
+                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-indigo-50 text-indigo-700 border border-indigo-200/50 dark:bg-violet-950/30 dark:text-violet-400 font-extrabold px-2 py-0.5 rounded-full">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-violet-500 animate-pulse"></span>
+                                            No Time A
+                                          </span>
+                                        ) : isInB ? (
+                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-teal-50 text-teal-700 border border-teal-200/50 dark:bg-emerald-950/30 dark:text-emerald-400 font-extrabold px-2 py-0.5 rounded-full">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 dark:bg-emerald-500 animate-pulse"></span>
+                                            No Time B
+                                          </span>
+                                        ) : isInRes ? (
+                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-amber-50 text-amber-700 border border-amber-200/50 dark:bg-amber-950/30 dark:text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                            Na Reserva
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1.5 text-[9px] bg-slate-50 text-slate-400 border border-slate-200/40 dark:bg-slate-800 dark:text-slate-500 font-bold px-2 py-0.5 rounded-full">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-650"></span>
+                                            Ausente
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      {/* Quick Actions */}
+                                      <td className="px-5 py-3.5 text-right">
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          {isPresent ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveFromActive(player.id, player.name)}
+                                              title="Marcar como Ausente (Remover do jogo)"
+                                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 p-1.5 rounded-lg transition-colors cursor-pointer"
+                                            >
+                                              <UserMinus className="w-3.5 h-3.5" />
+                                            </button>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAddToActive(player)}
+                                              title="Marcar como Presente (Adicionar ao jogo)"
+                                              className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-violet-400 dark:bg-violet-950/30 dark:hover:bg-violet-950/60 p-1.5 rounded-lg transition-colors cursor-pointer"
+                                            >
+                                              <Plus className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingPlayer(player);
+                                            }}
+                                            title="Editar cadastro do jogador"
+                                            className="text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 p-1.5 rounded-lg transition-colors cursor-pointer"
+                                          >
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* TAB: ARCHIVED LISTS OF PRESENCE */
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className={`text-xs font-semibold ${styles.textMuted}`}>
+                        Mostrando {presenceHistory.length} encontros encerrados (arquivados)
+                      </p>
+                    </div>
+
+                    <div className="max-h-[380px] overflow-y-auto space-y-3 pr-1">
+                      {presenceHistory.length > 0 ? (
+                        [...presenceHistory]
+                          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                          .map((list) => {
+                            const isExpanded = expandedDates.includes(list.dateString);
+                            return (
+                              <div
+                                key={list.dateString}
+                                className={`border rounded-xl overflow-hidden transition-all duration-205 ${
+                                  isExpanded
+                                    ? "border-indigo-200 dark:border-indigo-900/50 shadow-xs"
+                                    : "border-slate-100 hover:border-slate-200 dark:border-slate-800 dark:hover:border-slate-750"
+                                } ${styles.cardBg}`}
+                              >
+                                {/* List Header item */}
+                                <div className="p-4 flex items-center justify-between gap-4 flex-wrap">
+                                  <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-indigo-50 dark:bg-violet-950/40 text-indigo-600 dark:text-violet-400 rounded-lg">
+                                      <Calendar className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                      <h4 className={`text-sm font-bold ${styles.textBold}`}>{list.dateString}</h4>
+                                      <p className={`text-[10px] ${styles.textMuted}`}>
+                                        Encontro encerrado às {new Date(list.timestamp || Date.now()).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-3 ml-auto sm:ml-0">
+                                    <span className="text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2.5 py-1 rounded-full">
+                                      {list.players.length} Presentes
+                                    </span>
+
+                                    {/* Action buttons */}
+                                    <div className="flex items-center gap-1.5">
+                                      {/* Expand/Collapse */}
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleDateExpanded(list.dateString)}
+                                        className="p-1.5 text-slate-400 hover:text-slate-650 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-850 rounded-lg transition-colors cursor-pointer"
+                                        title={isExpanded ? "Ocultar jogadores" : "Ver jogadores presentes"}
+                                      >
+                                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                      </button>
+
+                                      {/* Delete List */}
+                                      <button
+                                        type="button"
+                                        onClick={() => setPresenceListToDelete(list)}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer"
+                                        title="Excluir lista de presença"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Expanded list of player names */}
+                                {isExpanded && (
+                                  <div className="px-5 pb-5 pt-1.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/10">
+                                    <p className={`text-[10px] font-bold uppercase tracking-wider ${styles.textMuted} mb-2.5`}>
+                                      Jogadores presentes neste dia:
+                                    </p>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                                      {list.players.map((p) => (
+                                        <div
+                                          key={p.id}
+                                          className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between ${
+                                            theme === "escuro" ? "bg-slate-900/40 border-slate-850" : "bg-white border-slate-155"
+                                          }`}
+                                        >
+                                          <span className={`font-semibold truncate ${styles.textBold}`}>{p.name}</span>
+                                          {p.isGuest && (
+                                            <span className="text-[8px] bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 font-extrabold px-1 rounded-sm shrink-0">
+                                              C
+                                            </span>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                      ) : (
+                        <div className="text-center py-16 border border-dashed rounded-2xl border-slate-200 dark:border-slate-800 text-slate-400">
+                          <Calendar className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                          <p className="text-xs font-bold">Nenhuma lista de presença arquivada.</p>
+                          <p className="text-[10px] text-slate-400 mt-1 max-w-xs mx-auto">
+                            Ao encerrar as atividades de uma sessão (clicando no botão "Encerrar Atividades"), a lista de presentes será salva aqui.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsPresenceHistoryOpen(false)}
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-slate-200 dark:text-slate-900 rounded-xl transition-all cursor-pointer shadow-sm"
+                >
+                  Fechar Painel
                 </button>
               </div>
             </motion.div>
@@ -2374,6 +3249,49 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* DELETE PRESENCE LIST CONFIRMATION DIALOG */}
+      <AnimatePresence>
+        {presenceListToDelete && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className={`rounded-2xl shadow-xl max-w-md w-full p-6 border transition-all duration-200 ${styles.cardBg} ${styles.border}`}
+            >
+              <div className="flex items-center gap-3 text-rose-600 mb-3">
+                <div className="p-2 bg-rose-50 dark:bg-rose-950/20 rounded-xl">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <h3 className={`font-display font-bold text-lg ${styles.textBold}`}>
+                  Excluir Lista de Presença?
+                </h3>
+              </div>
+              <p className={`text-xs leading-relaxed ${styles.textMuted}`}>
+                Você está prestes a excluir permanentemente a lista de presença do dia{" "}
+                <strong className="text-rose-600 font-bold">{presenceListToDelete.dateString}</strong>. Isso removerá esta data do histórico e recalculará o score de presença de todos os jogadores. Esta ação não poderá ser desfeita.
+              </p>
+              <div className="flex gap-2.5 mt-6 justify-end">
+                <button
+                  type="button"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-xl transition-all cursor-pointer"
+                  onClick={() => setPresenceListToDelete(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md transition-all cursor-pointer"
+                  onClick={() => handleDeletePresenceList(presenceListToDelete.dateString)}
+                >
+                  Confirmar Exclusão
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* TOAST NOTIFICATION CONTAINER */}
       <div className="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none max-w-sm w-full">
         <AnimatePresence>
@@ -2626,14 +3544,21 @@ function PlayerCard({
               {isUnlocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
             </button>
           </div>
-          <span
-            className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md mt-0.5 ${
-              isMale ? curCard.badgeMale : curCard.badgeFemale
-            }`}
-          >
-            <User className="w-3 h-3" />
-            {player.gender}
-          </span>
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                isMale ? curCard.badgeMale : curCard.badgeFemale
+              }`}
+            >
+              <User className="w-3 h-3" />
+              {player.gender}
+            </span>
+            {player.isGuest && (
+              <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-955 dark:text-amber-300 font-bold px-1.5 py-0.5 rounded-md">
+                Convidado
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

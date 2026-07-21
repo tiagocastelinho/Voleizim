@@ -13,6 +13,7 @@ export interface Player {
   name: string;
   gender: Gender;
   hierarchyValue: number;
+  isGuest?: boolean;
 }
 
 /**
@@ -149,3 +150,18 @@ export function mixTeams(
 
   return { teamA: sortedA, teamB: sortedB };
 }
+
+export interface PresencePlayer {
+  id: string;
+  name: string;
+  gender: Gender;
+  isGuest?: boolean;
+}
+
+export interface PresenceList {
+  id: string;
+  dateString: string;
+  timestamp: number;
+  players: PresencePlayer[];
+}
+
